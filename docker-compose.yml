@@ -53,6 +53,7 @@ services:
       - ./database/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
       - ./database/mutt_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
       - ./database/config_audit_schema.sql:/docker-entrypoint-initdb.d/config_audit_schema.sql
+      - ./database/partitioned_event_audit_log.sql:/docker-entrypoint-initdb.d/partitioned_event_audit_log.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mutt_user -d mutt"]
       interval: 10s
