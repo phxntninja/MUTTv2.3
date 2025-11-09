@@ -51,6 +51,13 @@
   from datetime import datetime
   from prometheus_client import start_http_server, Counter, Gauge, Histogram
   from http.server import HTTPServer, BaseHTTPRequestHandler
+  from typing import Any, Dict, Optional, Tuple
+  # Optional DynamicConfig (Phase 1)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover
+      DynamicConfig = None
+  DYN_CONFIG = None  # type: ignore[var-annotated]
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -240,6 +247,7 @@
 
               # Caching Config
               self.CACHE_RELOAD_INTERVAL = int(os.environ.get('CACHE_RELOAD_INTERVAL', 300))
+              self.DYNAMIC_CONFIG_ENABLED = os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true'
 
               # Alerter Logic Config
               self.UNHANDLED_PREFIX = os.environ.get('UNHANDLED_PREFIX', 'mutt:unhandled')
@@ -279,10 +287,53 @@
           logger.info(f"Configuration validated for worker: {self.POD_NAME}")
 
   # =====================================================================
+  # DYNAMIC CONFIG HELPERS (optional)
+  # =====================================================================
+
+  def _init_dynamic_config_if_enabled(config: "Config", redis_client: redis.Redis) -> None:
+      """Initialize DynamicConfig watcher if enabled and available."""
+      global DYN_CONFIG  # noqa: PLW0603
+      if not getattr(config, 'DYNAMIC_CONFIG_ENABLED', False):
+          return
+      if DynamicConfig is None:
+          logger.warning("DynamicConfig not available; skipping init")
+          return
+      try:
+          dyn = DynamicConfig(redis_client, prefix="mutt:config")
+          dyn.start_watcher()
+          DYN_CONFIG = dyn
+          logger.info("Dynamic configuration initialized for Alerter")
+      except Exception as e:
+          logger.error(f"Failed to initialize DynamicConfig: {e}")
+
+
+  def _dyn_get_int(key: str, fallback: int) -> int:
+      """Return dynamic int value or fallback on error/missing."""
+      try:
+          if DYN_CONFIG:
+              v = DYN_CONFIG.get(key, default=str(fallback))
+              return int(v)
+      except Exception as e:  # pragma: no cover
+          logger.debug(f"DynamicConfig get failed for {key}: {e}")
+      return fallback
+
+
+  def _get_cache_reload_interval(config: "Config") -> int:
+      return _dyn_get_int('cache_reload_interval', config.CACHE_RELOAD_INTERVAL)
+
+
+  def _get_unhandled_threshold(config: "Config") -> int:
+      return _dyn_get_int('unhandled_threshold', config.UNHANDLED_THRESHOLD)
+
+
+  def _get_unhandled_expiry(config: "Config") -> int:
+      return _dyn_get_int('unhandled_expiry_seconds', config.UNHANDLED_EXPIRY_SECONDS)
+
+  # =====================================================================
   # VAULT SECRET MANAGEMENT
   # =====================================================================
 
-  def fetch_secrets(config):
+  def fetch_secrets(config: "Config") -> Tuple[Any, Dict[str, str]]:
       """Connects to Vault, fetches secrets."""
       try:
           logger.info(f"Connecting to Vault at {config.VAULT_ADDR}...")
@@ -336,7 +387,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(config, vault_client, stop_event):
+  def start_vault_token_renewal(config: "Config", vault_client: Any, stop_event: threading.Event) -> threading.Thread:
       """Starts a background daemon thread for Vault token renewal."""
 
       def renewal_loop():
@@ -377,7 +428,7 @@
   # REDIS CONNECTION
   # =====================================================================
 
-  def connect_to_redis(config, secrets):
+  def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
       """Connects to Redis with TLS and connection pooling."""
       logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
 
@@ -413,7 +464,7 @@
   # POSTGRESQL CONNECTION POOL
   # =====================================================================
 
-  def create_postgres_pool(config, secrets):
+  def create_postgres_pool(config: "Config", secrets: Dict[str, str]) -> psycopg2.pool.ThreadedConnectionPool:
       """Creates a PostgreSQL connection pool with TLS."""
       logger.info(
           f"Creating PostgreSQL connection pool at {config.DB_HOST}:{config.DB_PORT} "
@@ -460,7 +511,7 @@
   class CacheManager:
       """Handles loading and periodic refreshing of DB rules into memory."""
 
-      def __init__(self, config, db_pool):
+      def __init__(self, config: "Config", db_pool: psycopg2.pool.ThreadedConnectionPool):
           self.config = config
           self.db_pool = db_pool
           self.cache_lock = threading.Lock()
@@ -473,7 +524,7 @@
           self.device_teams = {}
           self.regex_cache = {}
 
-      def load_caches(self):
+      def load_caches(self) -> None:
           """Loads all data from Postgres into memory."""
           start_time = time.time()
           logger.info("Starting cache reload from PostgreSQL...")
@@ -544,8 +595,11 @@
               if conn:
                   self.db_pool.putconn(conn)
 
-      def get_caches(self):
-          """Thread-safe way to get the current cache state."""
+      def get_caches(self) -> Dict[str, Any]:
+          """Thread-safe way to get the current cache state.
+
+          Returns a dict with keys: rules, dev_hosts, teams, regex.
+          """
           with self.cache_lock:
               return {
                   "rules": self.alert_rules,
@@ -554,18 +608,19 @@
                   "regex": self.regex_cache
               }
 
-      def start_cache_reloader(self):
+      def start_cache_reloader(self) -> None:
           """Starts a background thread to reload cache periodically."""
-          def reload_loop():
-              logger.info(f"Cache reloader thread started. Reloading every {self.config.CACHE_RELOAD_INTERVAL}s.")
-              while not self.stop_event.wait(self.config.CACHE_RELOAD_INTERVAL):
+      def reload_loop():
+              logger.info(f"Cache reloader thread started. Reloading every {_get_cache_reload_interval(self.config)}s.")
+              # Wait using dynamic interval (re-evaluated each cycle)
+              while not self.stop_event.wait(_get_cache_reload_interval(self.config)):
                   self.load_caches()
               logger.info("Cache reloader thread stopped.")
 
           self.reload_thread = threading.Thread(target=reload_loop, daemon=True, name="CacheReloader")
           self.reload_thread.start()
 
-      def stop(self):
+      def stop(self) -> None:
           """Stops the reloader thread."""
           self.stop_event.set()
           if self.reload_thread:
@@ -578,7 +633,7 @@
   class RuleMatcher:
       """Encapsulates the logic for finding the best rule for a message."""
 
-      def find_best_match(self, message_data, cache):
+      def find_best_match(self, message_data: Dict[str, Any], cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
           """Finds the first, highest-priority rule that matches."""
           msg_body = message_data.get('message', '')
           trap_oid = message_data.get('trap_oid')
@@ -619,7 +674,7 @@
   # HEARTBEAT & JANITOR
   # =====================================================================
 
-  def start_heartbeat(config, redis_client, stop_event):
+  def start_heartbeat(config: "Config", redis_client: redis.Redis, stop_event: threading.Event) -> threading.Thread:
       """Starts a thread to periodically update this worker's heartbeat."""
 
       def heartbeat_loop():
@@ -641,7 +696,7 @@
       return thread
 
 
-  def run_janitor(config, redis_client):
+  def run_janitor(config: "Config", redis_client: redis.Redis) -> None:
       """
       Recovers orphaned messages from dead workers on startup.
       An orphan is a message in a 'processing' list whose worker
@@ -706,8 +761,19 @@
   # CORE PROCESSING LOGIC
   # =====================================================================
 
-  def process_message(message_string, config, secrets, redis_client, db_pool, cache_mgr, matcher):
-      """The complete logic for processing a single message."""
+  def process_message(
+      message_string: str,
+      config: "Config",
+      secrets: Dict[str, str],
+      redis_client: redis.Redis,
+      db_pool: psycopg2.pool.ThreadedConnectionPool,
+      cache_mgr: CacheManager,
+      matcher: RuleMatcher
+  ) -> Optional[str]:
+      """The complete logic for processing a single message.
+
+      Returns the original message string on success, or None on discard/retry.
+      """
       start_time = time.time()
 
       try:
@@ -801,7 +867,15 @@
           return None  # Tell main loop to LREM
 
 
-  def process_handled_event(db_pool, redis_client, rule, message_data, environment, config, secrets):
+  def process_handled_event(
+      db_pool: psycopg2.pool.ThreadedConnectionPool,
+      redis_client: redis.Redis,
+      rule: Dict[str, Any],
+      message_data: Dict[str, Any],
+      environment: str,
+      config: "Config",
+      secrets: Dict[str, str]
+  ) -> None:
       """Logic for an event that matched a rule."""
       hostname = message_data.get('hostname')
       handling_decision = rule['dev_handling'] if environment == 'dev' else rule['prod_handling']
@@ -874,7 +948,13 @@
               db_pool.putconn(conn)
 
 
-  def process_unhandled_event(redis_client, message_data, config, secrets, device_teams):
+  def process_unhandled_event(
+      redis_client: redis.Redis,
+      message_data: Dict[str, Any],
+      config: "Config",
+      secrets: Dict[str, str],
+      device_teams: Dict[str, str]
+  ) -> None:
       """Logic for an event that did NOT match any rule."""
       hostname = message_data.get('hostname', 'unknown')
       message_body = message_data.get('message', '')
@@ -891,14 +971,14 @@
               2,  # Number of keys
               redis_key,
               triggered_key,
-              config.UNHANDLED_THRESHOLD,
-              config.UNHANDLED_EXPIRY_SECONDS
+              _get_unhandled_threshold(config),
+              _get_unhandled_expiry(config)
           )
 
           # 3. If we hit the threshold *exactly*, generate the meta-alert
           if should_trigger == 1:
               logger.warning(
-                  f"UNHANDLED: Threshold {config.UNHANDLED_THRESHOLD} hit for {hostname}: "
+                  f"UNHANDLED: Threshold {_get_unhandled_threshold(config)} hit for {hostname}: "
                   f"{message_body[:100]}..."
               )
 
@@ -912,8 +992,8 @@
                   "team_assignment": team,
                   "severity": "Warning",
                   "message_body": (
-                      f"[MUTT] Detected {config.UNHANDLED_THRESHOLD} unhandled messages "
-                      f"in {config.UNHANDLED_EXPIRY_SECONDS}s from '{hostname}'. "
+                      f"[MUTT] Detected {_get_unhandled_threshold(config)} unhandled messages "
+                      f"in {_get_unhandled_expiry(config)}s from '{hostname}'. "
                       f"Sample message: {message_body[:200]}"
                   ),
                   "raw_json": message_data,
@@ -1075,6 +1155,8 @@
       config = Config()
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
+      # Initialize optional dynamic configuration
+      _init_dynamic_config_if_enabled(config, redis_client)
       db_pool = create_postgres_pool(config, secrets)
 
       # --- 2. Start Background Services ---

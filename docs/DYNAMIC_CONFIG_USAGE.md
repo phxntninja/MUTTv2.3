@@ -503,3 +503,4 @@ Dynamic configuration enables:
 - ✅ **Production-ready** - Thread-safe, cached, tested
 
 **Next:** See `V2.5_IMPLEMENTATION_PLAN.md` for Phase 2 integration tasks
+Note: To enable dynamic configuration reads in services, set the environment variable `DYNAMIC_CONFIG_ENABLED=true`. When disabled (default), services use their static environment configuration and ignore dynamic values.

@@ -51,6 +51,7 @@
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
+  from typing import Any, Dict, Optional, Callable
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -176,7 +177,7 @@
   # VAULT SECRET MANAGEMENT
   # =====================================================================
 
-  def fetch_secrets(app):
+def fetch_secrets(app: Flask) -> None:
       """Connects to Vault, fetches secrets, and starts renewal thread."""
       config = app.config["MUTT_CONFIG"]
 
@@ -231,7 +232,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(app):
+def start_vault_token_renewal(app: Flask) -> None:
       """Starts a background daemon thread for Vault token renewal."""
       config = app.config["MUTT_CONFIG"]
       vault_client = app.config["VAULT_CLIENT"]
@@ -277,7 +278,7 @@
   # DATABASE CONNECTION POOL
   # =====================================================================
 
-  def create_postgres_pool(app):
+def create_postgres_pool(app: Flask) -> None:
       """Creates a PostgreSQL connection pool with TLS."""
       config = app.config["MUTT_CONFIG"]
       secrets = app.config["SECRETS"]
@@ -324,7 +325,7 @@
   # REDIS CONNECTION POOL
   # =====================================================================
 
-  def create_redis_pool(app):
+def create_redis_pool(app: Flask) -> None:
       """Creates a Redis connection pool and stores it on the app."""
       config = app.config["MUTT_CONFIG"]
       secrets = app.config["SECRETS"]
@@ -364,7 +365,7 @@
   # AUTHENTICATION DECORATOR
   # =====================================================================
 
-  def require_api_key(f):
+def require_api_key(f: Callable) -> Callable:
       """Decorator to require API key authentication."""
       @wraps(f)
       def decorated_function(*args, **kwargs):
@@ -388,20 +389,20 @@
   class MetricsCache:
       """Simple time-based cache for metrics to reduce Redis load."""
 
-      def __init__(self, ttl=5):
+      def __init__(self, ttl: int = 5) -> None:
           self.ttl = ttl
           self.data = None
           self.timestamp = 0
           self.lock = threading.Lock()
 
-      def get(self):
+      def get(self) -> Optional[Any]:
           """Get cached data if still valid."""
           with self.lock:
               if self.data and (time.time() - self.timestamp) < self.ttl:
                   return self.data
               return None
 
-      def set(self, data):
+      def set(self, data: Any) -> None:
           """Cache new data with current timestamp."""
           with self.lock:
               self.data = data
@@ -411,7 +412,7 @@
   # UTILITY FUNCTIONS
   # =====================================================================
 
-  def safe_int(value, default=0):
+def safe_int(value: Any, default: int = 0) -> int:
       """Safely convert value to int."""
       try:
           return int(value) if value else default
@@ -422,7 +423,7 @@
   # FLASK APPLICATION FACTORY
   # =====================================================================
 
-  def create_app():
+def create_app() -> Flask:
       """Creates and configures the Flask application."""
 
       app = Flask(__name__)
@@ -1144,7 +1145,7 @@
   # GRACEFUL SHUTDOWN
   # =====================================================================
 
-  def setup_signal_handlers(app):
+def setup_signal_handlers(app: Flask) -> None:
       """Set up signal handlers for graceful shutdown."""
 
       def shutdown_handler(signum, frame):

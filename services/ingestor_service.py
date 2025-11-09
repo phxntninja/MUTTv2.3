@@ -33,10 +33,16 @@
   import signal
   import sys
   import threading
+  from typing import Dict, Any
   from flask import Flask, request, jsonify
   from datetime import datetime
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram
+  # Dynamic configuration (optional, behind feature flag)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      DynamicConfig = None
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -88,8 +94,13 @@
   # CONFIGURATION
   # =====================================================================
 
-  def load_config():
-      """Loads and validates configuration from environment variables."""
+  def load_config() -> dict:
+      """
+      Loads and validates configuration from environment variables.
+
+      Returns:
+          dict: Validated configuration values.
+      """
       try:
           config = {
               "PORT": int(os.environ.get('SERVER_PORT_INGESTOR', 8080)),
@@ -115,7 +126,10 @@
               "METRICS_PREFIX": os.environ.get('METRICS_PREFIX', 'mutt:metrics'),
 
               # Input Validation
-              "REQUIRED_FIELDS": os.environ.get('REQUIRED_FIELDS', 'hostname,message,timestamp')
+              "REQUIRED_FIELDS": os.environ.get('REQUIRED_FIELDS', 'hostname,message,timestamp'),
+
+              # Dynamic Config (Phase 1 - optional)
+              "DYNAMIC_CONFIG_ENABLED": os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true',
           }
 
           # === Configuration Validation (Fail Fast) ===
@@ -163,7 +177,7 @@
   # VAULT SECRET MANAGEMENT WITH TOKEN RENEWAL
   # =====================================================================
 
-  def fetch_secrets(app):
+  def fetch_secrets(app: Flask) -> None:
       """
       Connects to Vault, fetches secrets, and stores them in app.config.
       Also starts a background thread for token renewal.
@@ -231,7 +245,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(app):
+  def start_vault_token_renewal(app: Flask) -> None:
       """
       Starts a background daemon thread that periodically checks Vault token TTL
       and renews it before expiry.
@@ -299,7 +313,7 @@
   # REDIS CONNECTION POOL
   # =====================================================================
 
-  def create_redis_pool(app):
+  def create_redis_pool(app: Flask) -> None:
       """Creates a Redis connection pool and stores it on the app."""
       config = app.config["CONFIG"]
       secrets = app.config["SECRETS"]
@@ -348,7 +362,48 @@
   # FLASK APPLICATION FACTORY
   # =====================================================================
 
-  def create_app():
+  def _init_dynamic_config(app: Flask) -> None:
+      """
+      Initialize DynamicConfig and attach to app if enabled and available.
+
+      This is a no-op unless CONFIG['DYNAMIC_CONFIG_ENABLED'] is true.
+      """
+      try:
+          if not app.config["CONFIG"].get("DYNAMIC_CONFIG_ENABLED"):
+              return
+          if DynamicConfig is None:
+              logger.warning("DynamicConfig not available; skipping dynamic configuration init")
+              return
+
+          # Use existing pool to create a Redis client
+          redis_client = redis.Redis(connection_pool=app.redis_pool)
+          dyn = DynamicConfig(redis_client, prefix="mutt:config")
+          dyn.start_watcher()
+          app.config["DYNAMIC_CONFIG"] = dyn
+          logger.info("Dynamic configuration initialized (watcher started)")
+      except Exception as e:
+          logger.error(f"Failed to initialize dynamic configuration: {e}")
+
+
+  def _get_max_ingest_queue_size(app: Flask) -> int:
+      """
+      Resolve max ingest queue size, using DynamicConfig if enabled.
+
+      Falls back to static CONFIG value on errors or if disabled.
+      """
+      try:
+          base_limit = int(app.config["CONFIG"]["MAX_INGEST_QUEUE_SIZE"])
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return base_limit
+          value = dyn.get('max_ingest_queue_size', default=str(base_limit))
+          return int(value)
+      except Exception as e:
+          logger.warning(f"Dynamic queue size lookup failed, using static: {e}")
+          return int(app.config["CONFIG"]["MAX_INGEST_QUEUE_SIZE"])
+
+
+  def create_app() -> Flask:
       """Creates and configures the Flask application."""
 
       app = Flask(__name__)
@@ -361,6 +416,9 @@
 
       # Initialize Redis connection pool
       create_redis_pool(app)
+
+      # Initialize optional dynamic configuration
+      _init_dynamic_config(app)
 
       # Initialize Prometheus metrics
       PrometheusMetrics(app)
@@ -471,7 +529,7 @@
                   # Update queue depth gauge metric
                   METRIC_QUEUE_DEPTH.set(queue_len)
 
-                  if queue_len >= config['MAX_INGEST_QUEUE_SIZE']:
+                  if queue_len >= _get_max_ingest_queue_size(app):
                       logger.warning(
                           f"Backpressure triggered: Queue full "
                           f"({queue_len}/{config['MAX_INGEST_QUEUE_SIZE']})"
@@ -482,7 +540,7 @@
                           "message": "Service Unavailable - queue full",
                           "correlation_id": correlation_id,
                           "queue_depth": queue_len,
-                          "queue_limit": config['MAX_INGEST_QUEUE_SIZE']
+                          "queue_limit": _get_max_ingest_queue_size(app)
                       }), 503
 
               except redis.exceptions.RedisError as e:

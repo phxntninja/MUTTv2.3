@@ -41,9 +41,15 @@
   import time
   import threading
   import requests
-  from datetime import datetime
   from http.server import HTTPServer, BaseHTTPRequestHandler
   from prometheus_client import start_http_server, Counter, Gauge, Histogram
+  from typing import Any, Dict, Optional, Tuple
+  # Optional DynamicConfig (Phase 1)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover
+      DynamicConfig = None
+  DYN_CONFIG = None  # type: ignore[var-annotated]
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -156,6 +162,7 @@
               self.METRICS_PORT = int(os.environ.get('METRICS_PORT_MOOG', 8083))
               self.HEALTH_PORT = int(os.environ.get('HEALTH_PORT_MOOG', 8084))
               self.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+              self.DYNAMIC_CONFIG_ENABLED = os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true'
 
               # Redis Config
               self.REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
@@ -232,11 +239,49 @@
           logger.info(f"Configuration validated for worker: {self.POD_NAME}")
 
   # =====================================================================
+  # DYNAMIC CONFIG HELPERS (optional)
+  # =====================================================================
+
+  def _init_dynamic_config_if_enabled(config: "Config", redis_client: redis.Redis) -> None:
+      """Initialize DynamicConfig watcher if enabled and available."""
+      global DYN_CONFIG  # noqa: PLW0603
+      if not getattr(config, 'DYNAMIC_CONFIG_ENABLED', False):
+          return
+      if DynamicConfig is None:
+          logger.warning("DynamicConfig not available; skipping init")
+          return
+      try:
+          dyn = DynamicConfig(redis_client, prefix="mutt:config")
+          dyn.start_watcher()
+          DYN_CONFIG = dyn
+          logger.info("Dynamic configuration initialized for Moog Forwarder")
+      except Exception as e:
+          logger.error(f"Failed to initialize DynamicConfig: {e}")
+
+
+  def _dyn_get_int(key: str, fallback: int) -> int:
+      try:
+          if DYN_CONFIG:
+              v = DYN_CONFIG.get(key, default=str(fallback))
+              return int(v)
+      except Exception as e:  # pragma: no cover
+          logger.debug(f"DynamicConfig get failed for {key}: {e}")
+      return fallback
+
+
+  def _get_moog_rate_limit(config: "Config") -> int:
+      return _dyn_get_int('moog_rate_limit', config.MOOG_RATE_LIMIT)
+
+
+  def _get_moog_rate_period(config: "Config") -> int:
+      return _dyn_get_int('moog_rate_period', config.MOOG_RATE_PERIOD)
+
+  # =====================================================================
   # VAULT SECRET MANAGEMENT
   # =====================================================================
 
-  def fetch_secrets(config):
-      """Connects to Vault and fetches secrets."""
+def fetch_secrets(config: "Config") -> Tuple[Any, Dict[str, str]]:
+    """Connects to Vault and fetches secrets."""
       try:
           logger.info(f"Connecting to Vault at {config.VAULT_ADDR}...")
           vault_client = hvac.Client(url=config.VAULT_ADDR)
@@ -285,8 +330,8 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(config, vault_client, stop_event):
-      """Starts a background daemon thread for Vault token renewal."""
+def start_vault_token_renewal(config: "Config", vault_client: Any, stop_event: threading.Event) -> threading.Thread:
+    """Starts a background daemon thread for Vault token renewal."""
 
       def renewal_loop():
           logger.info("Vault token renewal thread started")
@@ -326,8 +371,8 @@
   # REDIS CONNECTION
   # =====================================================================
 
-  def connect_to_redis(config, secrets):
-      """Connects to Redis with TLS and connection pooling."""
+def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
+    """Connects to Redis with TLS and connection pooling."""
       logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
 
       try:
@@ -362,7 +407,7 @@
   # HEARTBEAT & JANITOR
   # =====================================================================
 
-  def start_heartbeat(config, redis_client, stop_event):
+def start_heartbeat(config: "Config", redis_client: redis.Redis, stop_event: threading.Event) -> threading.Thread:
       """Starts a thread to periodically update this worker's heartbeat."""
 
       def heartbeat_loop():
@@ -383,7 +428,7 @@
       return thread
 
 
-  def run_janitor(config, redis_client):
+def run_janitor(config: "Config", redis_client: redis.Redis) -> None:
       """
       Recovers orphaned messages from dead workers on startup.
       Uses SCAN instead of KEYS for production safety.
@@ -444,20 +489,20 @@
   # RATE LIMITING
   # =====================================================================
 
-  def check_rate_limit(redis_client, config):
+  def check_rate_limit(redis_client: redis.Redis, config: "Config") -> bool:
       """
       Check if we're within rate limit using Redis sliding window.
       Returns True if allowed, False if rate limited.
       """
       try:
           now = int(time.time() * 1000)  # Milliseconds
-          window_ms = config.MOOG_RATE_PERIOD * 1000
+          window_ms = _get_moog_rate_period(config) * 1000
 
           allowed = redis_client.eval(
               RATE_LIMIT_LUA_SCRIPT,
               1,  # Number of keys
               config.MOOG_RATE_LIMIT_KEY,
-              config.MOOG_RATE_LIMIT,
+              _get_moog_rate_limit(config),
               window_ms,
               now
           )
@@ -477,7 +522,7 @@
   # MOOG WEBHOOK
   # =====================================================================
 
-  def send_to_moog(alert_data, config, secrets):
+def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str, str]) -> Tuple[bool, bool, str]:
       """
       Sends an alert to Moogsoft webhook.
 
@@ -499,7 +544,7 @@
               "agent": "MUTT v2.3",
               "agent_location": "Alerter Service",
               "type": "Alert",
-              "severity": self._map_severity(alert_data.get('severity', 'Warning')),
+              "severity": _map_severity(alert_data.get('severity', 'Warning')),
               "description": alert_data.get('message_body', ''),
               "agent_time": int(time.time())
           }
@@ -567,7 +612,7 @@
           return (False, True, f"Unexpected error: {e}")
 
 
-  def _map_severity(severity_str):
+def _map_severity(severity_str: str) -> int:
       """Map MUTT severity to Moog severity (0-5)."""
       severity_map = {
           'Critical': 5,
@@ -583,7 +628,7 @@
   # CORE PROCESSING LOGIC
   # =====================================================================
 
-  def process_alert(alert_string, config, secrets, redis_client):
+  def process_alert(alert_string: str, config: "Config", secrets: Dict[str, str], redis_client: redis.Redis) -> Optional[str]:
       """
       Process a single alert from the queue.
 
