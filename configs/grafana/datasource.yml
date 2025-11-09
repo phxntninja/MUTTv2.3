@@ -1,0 +1,48 @@
+# =====================================================================
+# MUTT v2.3 - Grafana Datasource Configuration
+# =====================================================================
+# This file configures Grafana to use Prometheus as a datasource.
+#
+# Installation:
+#   1. Copy to /etc/grafana/provisioning/datasources/datasource.yml
+#   2. Restart Grafana: systemctl restart grafana-server
+#
+# This allows Grafana to automatically discover and use Prometheus
+# without manual configuration through the UI.
+# =====================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+    version: 1
+
+  # Optional: Add additional Prometheus instances for different environments
+  # - name: Prometheus-Dev
+  #   type: prometheus
+  #   access: proxy
+  #   url: http://prometheus-dev.yourdomain.com:9090
+  #   isDefault: false
+  #   editable: false
+  #   jsonData:
+  #     httpMethod: POST
+  #     timeInterval: 15s
+  #   version: 1
+
+# =====================================================================
+# Configuration Notes
+# =====================================================================
+# - Replace localhost:9090 with your Prometheus server address
+# - Set isDefault: true for the primary datasource
+# - editable: false prevents manual changes in Grafana UI
+# - httpMethod: POST is recommended for large queries
+# - timeInterval should match Prometheus scrape_interval
+# =====================================================================

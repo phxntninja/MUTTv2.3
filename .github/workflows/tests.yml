@@ -1,0 +1,234 @@
+name: MUTT CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  # ===================================================================
+  # Lint and Code Quality
+  # ===================================================================
+  lint:
+    name: Lint and Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pylint black isort
+
+      - name: Run flake8
+        run: |
+          flake8 services/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 services/ tests/ --count --max-complexity=10 --max-line-length=100 --statistics
+
+      - name: Run black (check only)
+        run: |
+          black --check services/ tests/
+
+      - name: Run isort (check only)
+        run: |
+          isort --check-only services/ tests/
+
+  # ===================================================================
+  # Unit Tests
+  # ===================================================================
+  test:
+    name: Unit Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r tests/requirements-test.txt
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --cov=services --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=80
+
+  # ===================================================================
+  # Security Scanning
+  # ===================================================================
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      - name: Run Bandit (security linter)
+        run: |
+          bandit -r services/ -f json -o bandit-report.json
+
+      - name: Run Safety (dependency checker)
+        run: |
+          safety check --json
+
+  # ===================================================================
+  # Docker Build Test
+  # ===================================================================
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Ingestor
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: ingestor
+          push: false
+          tags: mutt-ingestor:test
+
+      - name: Build Alerter
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: alerter
+          push: false
+          tags: mutt-alerter:test
+
+      - name: Build Moog Forwarder
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: moog-forwarder
+          push: false
+          tags: mutt-moog-forwarder:test
+
+      - name: Build Web UI
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          target: webui
+          push: false
+          tags: mutt-webui:test
+
+  # ===================================================================
+  # Integration Tests (with Docker Compose)
+  # ===================================================================
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Start services with Docker Compose
+        run: |
+          docker-compose up -d
+          sleep 30  # Wait for services to be ready
+
+      - name: Check service health
+        run: |
+          curl -f http://localhost:8080/health || exit 1
+          curl -f http://localhost:8081/health || exit 1
+          curl -f http://localhost:8082/health || exit 1
+          curl -f http://localhost:8090/health || exit 1
+
+      - name: Send test message
+        run: |
+          curl -X POST http://localhost:8080/ingest \
+            -H "Content-Type: application/json" \
+            -H "X-API-KEY: test-api-key-123" \
+            -d '{
+              "timestamp": "2025-11-08T12:00:00Z",
+              "message": "CI/CD test message",
+              "hostname": "test-server",
+              "program": "test",
+              "syslog_severity": 4,
+              "source_ip": "192.168.1.100",
+              "mutt_type": "syslog"
+            }'
+
+      - name: View logs
+        if: failure()
+        run: |
+          docker-compose logs
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker-compose down -v
+
+  # ===================================================================
+  # Notify Results
+  # ===================================================================
+  notify:
+    name: Notify Build Results
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, docker, integration]
+    if: always()
+
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.lint.result }}" = "success" ] && \
+             [ "${{ needs.test.result }}" = "success" ] && \
+             [ "${{ needs.security.result }}" = "success" ] && \
+             [ "${{ needs.docker.result }}" = "success" ] && \
+             [ "${{ needs.integration.result }}" = "success" ]; then
+            echo "✅ All checks passed!"
+            exit 0
+          else
+            echo "❌ Some checks failed"
+            exit 1
+          fi

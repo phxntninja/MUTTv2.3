@@ -1,0 +1,54 @@
+# =====================================================================
+# MUTT v2.3 Test Dependencies
+# =====================================================================
+# Install with: pip install -r requirements-test.txt
+# =====================================================================
+
+# Core testing framework
+pytest==7.4.3
+pytest-cov==4.1.0          # Coverage reporting
+pytest-mock==3.12.0        # Mocking helpers
+pytest-xdist==3.5.0        # Parallel test execution
+
+# Testing utilities
+coverage==7.4.0            # Coverage measurement
+mock==5.1.0                # Additional mocking support
+
+# Code quality (optional)
+pytest-flake8==1.1.1       # Linting during tests
+pytest-pylint==0.21.0      # Code quality checks
+
+# Performance testing (optional)
+pytest-benchmark==4.0.0    # Performance benchmarking
+
+# Test reporting
+pytest-html==4.1.1         # HTML test reports
+pytest-json-report==1.5.0  # JSON test reports
+
+# Main application dependencies (from requirements.txt)
+Flask==2.3.3
+redis==5.0.1
+psycopg2-binary==2.9.9
+hvac==2.0.0
+requests==2.31.0
+prometheus-client==0.18.0
+
+# =====================================================================
+# Installation:
+# =====================================================================
+# 1. Create/activate virtual environment:
+#    python3 -m venv venv
+#    source venv/bin/activate
+#
+# 2. Install test dependencies:
+#    pip install -r requirements-test.txt
+#
+# 3. Run tests:
+#    pytest tests/ -v
+#
+# 4. Run with coverage:
+#    pytest tests/ --cov=. --cov-report=html
+#
+# 5. View coverage report:
+#    open htmlcov/index.html
+# =====================================================================
