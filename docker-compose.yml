@@ -1,0 +1,410 @@
+version: '3.8'
+
+# =====================================================================
+# MUTT v2.3 - Complete Docker Compose Environment
+# =====================================================================
+# This compose file provides a complete local testing environment with:
+# - All 4 MUTT services
+# - Redis (with persistence)
+# - PostgreSQL 14
+# - Vault (dev mode)
+# - Mock Moog server
+# - Prometheus + Grafana
+#
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose ps             # Check status
+#   docker-compose logs -f        # Follow logs
+#   docker-compose down           # Stop all services
+# =====================================================================
+
+services:
+  # =================================================================
+  # Infrastructure Services
+  # =================================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: mutt-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mutt-network
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: mutt-postgres
+    environment:
+      POSTGRES_DB: mutt
+      POSTGRES_USER: mutt_user
+      POSTGRES_PASSWORD: mutt_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./database/mutt_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
+      - ./database/config_audit_schema.sql:/docker-entrypoint-initdb.d/config_audit_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mutt_user -d mutt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mutt-network
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: mutt-vault
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root-token-for-dev
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - ./scripts/vault-init.sh:/vault-init.sh
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mutt-network
+
+  # =================================================================
+  # MUTT Services
+  # =================================================================
+
+  ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ingestor
+    container_name: mutt-ingestor
+    ports:
+      - "8080:8080"
+    environment:
+      # Service Config
+      INGESTOR_HOST: 0.0.0.0
+      INGESTOR_PORT: 8080
+      INGESTOR_WORKERS: 4
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_SOCKET_KEEPALIVE: "true"
+      REDIS_HEALTH_CHECK_INTERVAL: 30
+
+      # Vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_MOUNT_PATH: secret
+      VAULT_SECRET_PATH: mutt/prod
+      VAULT_TOKEN: root-token-for-dev
+      VAULT_TOKEN_RENEW_THRESHOLD: 86400
+
+      # Queue Config
+      INGEST_QUEUE_NAME: mutt:ingest_queue
+      INGEST_QUEUE_CAP: 1000000
+
+      # Metrics
+      METRICS_PORT: 9090
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mutt-network
+
+  alerter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: alerter
+    container_name: mutt-alerter
+    ports:
+      - "8081:8081"
+      - "9091:9091"
+    environment:
+      # Service Config
+      ALERTER_HEALTH_PORT: 8081
+      ALERTER_METRICS_PORT: 9091
+      POD_NAME: alerter-001
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # PostgreSQL
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mutt
+      POSTGRES_USER: mutt_user
+      POSTGRES_PASSWORD: mutt_password
+      POSTGRES_POOL_MIN: 2
+      POSTGRES_POOL_MAX: 10
+
+      # Vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root-token-for-dev
+      VAULT_MOUNT_PATH: secret
+      VAULT_SECRET_PATH: mutt/prod
+
+      # Queue Config
+      INGEST_QUEUE_NAME: mutt:ingest_queue
+      ALERT_QUEUE_NAME: mutt:alert_queue
+      PROCESSING_LIST_PREFIX: mutt:processing:alerter
+      UNHANDLED_KEY_PREFIX: mutt:unhandled
+
+      # Processing Config
+      BRPOPLPUSH_TIMEOUT: 5
+      RULE_CACHE_TTL: 300
+      JANITOR_INTERVAL: 60
+      HEARTBEAT_INTERVAL: 10
+      HEARTBEAT_EXPIRY: 30
+      POISON_MESSAGE_MAX_RETRIES: 3
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mutt-network
+
+  moog-forwarder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: moog-forwarder
+    container_name: mutt-moog-forwarder
+    ports:
+      - "8082:8082"
+      - "9092:9092"
+    environment:
+      # Service Config
+      MOOG_FORWARDER_HEALTH_PORT: 8082
+      MOOG_FORWARDER_METRICS_PORT: 9092
+      POD_NAME: moog-forwarder-001
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root-token-for-dev
+      VAULT_MOUNT_PATH: secret
+      VAULT_SECRET_PATH: mutt/prod
+
+      # Queue Config
+      ALERT_QUEUE_NAME: mutt:alert_queue
+      PROCESSING_LIST_PREFIX: mutt:processing:moog
+      DLQ_NAME: mutt:dlq:moog
+
+      # Moog Config
+      MOOG_WEBHOOK_URL: http://mock-moog:8888/webhook
+      MOOG_TIMEOUT: 10
+
+      # Rate Limiting
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_MAX_REQUESTS: 100
+      RATE_LIMIT_WINDOW_SECONDS: 60
+      RATE_LIMIT_KEY: mutt:rate_limit:moog
+
+      # Retry Config
+      RETRY_MAX_ATTEMPTS: 5
+      RETRY_INITIAL_DELAY: 1
+      RETRY_MAX_DELAY: 60
+      RETRY_BACKOFF_MULTIPLIER: 2
+
+      # Janitor Config
+      JANITOR_INTERVAL: 60
+      HEARTBEAT_INTERVAL: 10
+      HEARTBEAT_EXPIRY: 30
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mutt-network
+
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: webui
+    container_name: mutt-webui
+    ports:
+      - "8090:8090"
+    environment:
+      # Service Config
+      WEBUI_HOST: 0.0.0.0
+      WEBUI_PORT: 8090
+      WEBUI_WORKERS: 2
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # PostgreSQL
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mutt
+      POSTGRES_USER: mutt_user
+      POSTGRES_PASSWORD: mutt_password
+      POSTGRES_POOL_MIN: 2
+      POSTGRES_POOL_MAX: 10
+
+      # Vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root-token-for-dev
+      VAULT_MOUNT_PATH: secret
+      VAULT_SECRET_PATH: mutt/prod
+
+      # Caching
+      METRICS_CACHE_TTL: 5
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mutt-network
+
+  # =================================================================
+  # Mock Services (for testing)
+  # =================================================================
+
+  mock-moog:
+    image: python:3.9-slim
+    container_name: mutt-mock-moog
+    ports:
+      - "8888:8888"
+    command: |
+      python -c "
+      from http.server import HTTPServer, BaseHTTPRequestHandler
+      import json
+
+      class MockMoog(BaseHTTPRequestHandler):
+          def do_POST(self):
+              content_length = int(self.headers['Content-Length'])
+              body = self.rfile.read(content_length)
+              print(f'Received alert: {body.decode()}')
+              self.send_response(200)
+              self.send_header('Content-Type', 'application/json')
+              self.end_headers()
+              self.wfile.write(json.dumps({'status': 'accepted'}).encode())
+
+          def log_message(self, format, *args):
+              print(f'{self.address_string()} - {format % args}')
+
+      server = HTTPServer(('0.0.0.0', 8888), MockMoog)
+      print('Mock Moog server running on port 8888')
+      server.serve_forever()
+      "
+    networks:
+      - mutt-network
+
+  # =================================================================
+  # Monitoring Services
+  # =================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mutt-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./configs/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - mutt-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mutt-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - mutt-network
+
+# =====================================================================
+# Networks
+# =====================================================================
+networks:
+  mutt-network:
+    driver: bridge
+
+# =====================================================================
+# Volumes
+# =====================================================================
+volumes:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
