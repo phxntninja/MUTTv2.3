@@ -1,0 +1,146 @@
+# =====================================================================
+# MUTT v2.3 - Prometheus Configuration
+# =====================================================================
+# This file configures Prometheus to scrape metrics from all MUTT services
+# and load alerting rules.
+#
+# Installation:
+#   1. Copy to /etc/prometheus/prometheus.yml
+#   2. Reload Prometheus: kill -HUP $(pidof prometheus)
+#      OR restart: systemctl restart prometheus
+# =====================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'mutt-production'
+    environment: 'prod'
+
+# =====================================================================
+# Alerting Configuration
+# =====================================================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'localhost:9093'  # Alertmanager address
+
+# =====================================================================
+# Rule Files
+# =====================================================================
+rule_files:
+  - 'alerts.yml'
+
+# =====================================================================
+# Scrape Configurations
+# =====================================================================
+scrape_configs:
+  # -------------------------------------------------------------------
+  # Prometheus Self-Monitoring
+  # -------------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # -------------------------------------------------------------------
+  # MUTT Ingestor Service
+  # -------------------------------------------------------------------
+  - job_name: 'mutt-ingestor'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'mutt-ingestor-01.yourdomain.com:8080'
+          - 'mutt-ingestor-02.yourdomain.com:8080'
+          - 'mutt-ingestor-03.yourdomain.com:8080'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '$1'
+
+  # -------------------------------------------------------------------
+  # MUTT Alerter Service
+  # -------------------------------------------------------------------
+  - job_name: 'mutt-alerter'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'mutt-alerter-01.yourdomain.com:9091'
+          - 'mutt-alerter-02.yourdomain.com:9091'
+          - 'mutt-alerter-03.yourdomain.com:9091'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '$1'
+
+  # -------------------------------------------------------------------
+  # MUTT Moog Forwarder Service
+  # -------------------------------------------------------------------
+  - job_name: 'mutt-moog-forwarder'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'mutt-moog-forwarder-01.yourdomain.com:9092'
+          - 'mutt-moog-forwarder-02.yourdomain.com:9092'
+          - 'mutt-moog-forwarder-03.yourdomain.com:9092'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '$1'
+
+  # -------------------------------------------------------------------
+  # MUTT Web UI Service
+  # -------------------------------------------------------------------
+  - job_name: 'mutt-webui'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'mutt-webui-01.yourdomain.com:8090'
+          - 'mutt-webui-02.yourdomain.com:8090'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '$1'
+
+  # -------------------------------------------------------------------
+  # Redis (if redis_exporter is installed)
+  # -------------------------------------------------------------------
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          - 'redis-exporter.yourdomain.com:9121'
+
+  # -------------------------------------------------------------------
+  # PostgreSQL (if postgres_exporter is installed)
+  # -------------------------------------------------------------------
+  - job_name: 'postgresql'
+    static_configs:
+      - targets:
+          - 'postgres-exporter.yourdomain.com:9187'
+
+  # -------------------------------------------------------------------
+  # Node Exporter (for system metrics)
+  # -------------------------------------------------------------------
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          - 'mutt-host-01.yourdomain.com:9100'
+          - 'mutt-host-02.yourdomain.com:9100'
+          - 'mutt-host-03.yourdomain.com:9100'
+
+# =====================================================================
+# Configuration Notes
+# =====================================================================
+# - Replace .yourdomain.com with your actual domain
+# - Adjust target lists based on your actual service deployment
+# - Scrape interval of 15s balances freshness with load
+# - Add TLS configuration for production:
+#     tls_config:
+#       ca_file: /path/to/ca.crt
+#       cert_file: /path/to/client.crt
+#       key_file: /path/to/client.key
+# =====================================================================

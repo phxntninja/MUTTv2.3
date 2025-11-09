@@ -1,0 +1,475 @@
+[
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:30:22Z",
+    "message": "%LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/0/0, changed state to down",
+    "syslog_severity": "Notice",
+    "trap_oid": "1.3.6.1.4.1.9.2.2.1.1.0",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:30:23Z",
+    "message": "%PIX-1-106021: Deny protocol 47 src outside:203.0.113.45 dst inside:192.168.10.5",
+    "syslog_severity": "Alert",
+    "trap_oid": "1.3.6.1.4.1.9.1.1.1.5.0",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "dist-switch-03.campus.example.com",
+    "timestamp": "2025-01-15T14:30:25Z",
+    "message": "%PLATFORM_ENV-1-FRU_PS_FAIL: FRU Power Supply 1 has failed",
+    "syslog_severity": "Critical",
+    "trap_oid": "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "wan-router-04.wan.example.com",
+    "timestamp": "2025-01-15T14:30:27Z",
+    "message": "%BGP-3-NOTIFICATION: received from neighbor 203.0.113.10 6/0 (Unspecified Error) 0 bytes",
+    "syslog_severity": "Error",
+    "trap_oid": "1.3.6.1.4.1.9.1.1.1.3.0",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "access-switch-05.wireless.example.com",
+    "timestamp": "2025-01-15T14:30:29Z",
+    "message": "%SYS-5-CONFIG_I: Configured from console by vty0 (192.168.1.100)",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "server-db-06.prod.example.com",
+    "timestamp": "2025-01-15T14:30:31Z",
+    "message": "kernel: [12345.678910] Out of memory: Kill process 1234 (mysqld) score 128 or sacrifice child",
+    "syslog_severity": "Critical",
+    "source_type": "linux"
+  },
+  {
+    "hostname": "load-balancer-07.prod.example.com",
+    "timestamp": "2025-01-15T14:30:33Z",
+    "message": "haproxy[1234]: Proxy web_backend reached 90% of max connections (9000/10000)",
+    "syslog_severity": "Warning",
+    "source_type": "haproxy"
+  },
+  {
+    "hostname": "vpn-concentrator-08.remote.example.com",
+    "timestamp": "2025-01-15T14:30:35Z",
+    "message": "%VPN_HW-6-INFO: Hardware encryption module temperature at 75C (threshold 80C)",
+    "syslog_severity": "Info",
+    "trap_oid": "1.3.6.1.4.1.9.9.171.1.1.1.2.0",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "radius-server-09.auth.example.com",
+    "timestamp": "2025-01-15T14:30:37Z",
+    "message": "radiusd[5678]: auth: Login failed: [username] (from client test-portal port 0 cli 00:11:22:33:44:55)",
+    "syslog_severity": "Warning",
+    "source_type": "freeradius"
+  },
+  {
+    "hostname": "dns-server-10.internal.example.com",
+    "timestamp": "2025-01-15T14:30:39Z",
+    "message": "named[4321]: client @0x7f8b3c001230 10.0.0.55#54321: query: example.com IN A +E(0)K (10.0.0.1)",
+    "syslog_severity": "Info",
+    "source_type": "bind"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:30:41Z",
+    "message": "%OSPF-5-ADJCHG: Process 1, Nbr 192.168.255.2 on GigabitEthernet0/0/1 from FULL to DOWN, Neighbor Down: Dead timer expired",
+    "syslog_severity": "Notice",
+    "trap_oid": "1.3.6.1.2.1.14.16.2.2",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "idp-sensor-11.security.example.com",
+    "timestamp": "2025-01-15T14:30:43Z",
+    "message": "IDS: Signature match: EXPLOIT-KIT multiple vulnerabilities attempt from 198.51.100.77",
+    "syslog_severity": "Alert",
+    "source_type": "snort"
+  },
+  {
+    "hostname": "wireless-controller-12.campus.example.com",
+    "timestamp": "2025-01-15T14:30:45Z",
+    "message": "%DOT11-6-ASSOC: Interface Dot11Radio0, Station 00:11:22:33:44:55 Associated SSID: STUDENT",
+    "syslog_severity": "Info",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "storage-array-13.storage.example.com",
+    "timestamp": "2025-01-15T14:30:47Z",
+    "message": "Storage Pool 'Production' is 95% full. 500GB remaining of 10TB",
+    "syslog_severity": "Warning",
+    "source_type": "emc-unity"
+  },
+  {
+    "hostname": "hypervisor-14.prod.example.com",
+    "timestamp": "2025-01-15T14:30:49Z",
+    "message": "ESXi kernel: CPU usage on host is high: average 95% for 15 minutes",
+    "syslog_severity": "Warning",
+    "source_type": "vmware-esxi"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:30:51Z",
+    "message": "%ASA-4-733100: IP Address 203.0.113.15 is now being shunned by threat-detection",
+    "syslog_severity": "Warning",
+    "trap_oid": "1.3.6.1.4.1.9.1.1.1.4.0",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:30:53Z",
+    "message": "%PIM-5-NBRCHG: neighbor 192.168.1.10 UP on interface GigabitEthernet0/0/2",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "dhcp-server-15.internal.example.com",
+    "timestamp": "2025-01-15T14:30:55Z",
+    "message": "dhcpd[7890]: DHCPDISCOVER from 00:11:22:33:44:55 via eth0: network 10.0.0/24: no free leases",
+    "syslog_severity": "Error",
+    "source_type": "isc-dhcp"
+  },
+  {
+    "hostname": "wan-router-04.wan.example.com",
+    "timestamp": "2025-01-15T14:30:57Z",
+    "message": "%HSRP-5-STATECHANGE: GigabitEthernet0/1/0 Grp 10 state Active -> Speak",
+    "syslog_severity": "Notice",
+    "trap_oid": "1.3.6.1.4.1.9.9.106.2.0.1",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "server-app-16.prod.example.com",
+    "timestamp": "2025-01-15T14:30:59Z",
+    "message": "apache2[1234]: [error] [client 10.0.0.45] PHP Fatal error: Allowed memory size exhausted",
+    "syslog_severity": "Error",
+    "source_type": "apache"
+  },
+  {
+    "hostname": "dist-switch-03.campus.example.com",
+    "timestamp": "2025-01-15T14:31:01Z",
+    "message": "%SPANTREE-2-LOOPGUARD_BLOCK: Loop guard blocking port GigabitEthernet1/0/12 on VLAN0050",
+    "syslog_severity": "Critical",
+    "trap_oid": "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "backup-server-17.backup.example.com",
+    "timestamp": "2025-01-15T14:31:03Z",
+    "message": "bacula-dir[4567]: Backup job 'WebServer-Full' failed: ERR=Error reading data from storage",
+    "syslog_severity": "Error",
+    "source_type": "bacula"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:31:05Z",
+    "message": "%SYS-6-LOGGINGHOST_STARTSTOP: Logging to host 192.168.1.50 stopped - device unreachable",
+    "syslog_severity": "Info",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "load-balancer-07.prod.example.com",
+    "timestamp": "2025-01-15T14:31:07Z",
+    "message": "haproxy[1234]: Server web_backend/web03 is DOWN, reason: Layer4 timeout, check duration: 5001ms",
+    "syslog_severity": "Error",
+    "source_type": "haproxy"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:31:09Z",
+    "message": "%ASA-6-302013: Built inbound TCP connection 12345 for outside:198.51.100.25/54321 to inside:192.168.10.10/443",
+    "syslog_severity": "Info",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "storage-array-13.storage.example.com",
+    "timestamp": "2025-01-15T14:31:11Z",
+    "message": "SP Event: Disk in slot 12 has failed. Replace immediately.",
+    "syslog_severity": "Critical",
+    "source_type": "emc-unity"
+  },
+  {
+    "hostname": "wireless-controller-12.campus.example.com",
+    "timestamp": "2025-01-15T14:31:13Z",
+    "message": "%DOT11-4-FLOOD_DOS: DoS attack detected from MAC 00:11:22:33:44:55 on AP 3700-1",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "radius-server-09.auth.example.com",
+    "timestamp": "2025-01-15T14:31:15Z",
+    "message": "radiusd[5678]: auth: Login OK: [admin] (from client mgmt-gateway port 0 cli 192.168.1.100)",
+    "syslog_severity": "Info",
+    "source_type": "freeradius"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:31:17Z",
+    "message": "%SYS-5-CONFIG_I: Configured from console by admin on vty0 (192.168.1.50)",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "wan-router-04.wan.example.com",
+    "timestamp": "2025-01-15T14:31:19Z",
+    "message": "%BGP-4-MSGDUMP: unsupported or mal-formatted message received from 203.0.113.10:",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "dns-server-10.internal.example.com",
+    "timestamp": "2025-01-15T14:31:21Z",
+    "message": "named[4321]: error (network unreachable) resolving 'example.com/AAAA/IN': 2001:db8::1#53",
+    "syslog_severity": "Warning",
+    "source_type": "bind"
+  },
+  {
+    "hostname": "dist-switch-03.campus.example.com",
+    "timestamp": "2025-01-15T14:31:23Z",
+    "message": "%STORM_CONTROL-2-SHUTDOWN: A packet was received on interface GigabitEthernet1/0/24 that caused the interface to be error-disabled",
+    "syslog_severity": "Critical",
+    "trap_oid": "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "hypervisor-14.prod.example.com",
+    "timestamp": "2025-01-15T14:31:25Z",
+    "message": "ESXi kernel: Memory usage on host is high: average 92% for 10 minutes",
+    "syslog_severity": "Warning",
+    "source_type": "vmware-esxi"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:31:27Z",
+    "message": "%ASA-3-710003: TCP access denied by ACL from 203.0.113.66/12345 to outside:192.0.2.10/22",
+    "syslog_severity": "Error",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:31:29Z",
+    "message": "%SNMP-3-INPUT_QFULL_SNMP: Packet dropped due to input queue full",
+    "syslog_severity": "Error",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "server-db-06.prod.example.com",
+    "timestamp": "2025-01-15T14:31:31Z",
+    "message": "mysqld[1234]: [Warning] Aborted connection 12345 to db: 'prod_db' user: 'app_user' host: '10.0.0.25'",
+    "syslog_severity": "Warning",
+    "source_type": "mysql"
+  },
+  {
+    "hostname": "access-switch-05.wireless.example.com",
+    "timestamp": "2025-01-15T14:31:33Z",
+    "message": "%POE-5-IEEE_DISCONNECT: Interface Gi1/0/10: PD removed",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "load-balancer-07.prod.example.com",
+    "timestamp": "2025-01-15T14:31:35Z",
+    "message": "haproxy[1234]: Health check for server web_backend/web02 failed, reason: Layer7 wrong status, code: 500",
+    "syslog_severity": "Warning",
+    "source_type": "haproxy"
+  },
+  {
+    "hostname": "idp-sensor-11.security.example.com",
+    "timestamp": "2025-01-15T14:31:37Z",
+    "message": "IDS: High severity signature match: SQL Injection attempt from 198.51.100.88",
+    "syslog_severity": "Alert",
+    "source_type": "snort"
+  },
+  {
+    "hostname": "storage-array-13.storage.example.com",
+    "timestamp": "2025-01-15T14:31:39Z",
+    "message": "Pool 'Production' thin provisioning growth rate exceeds threshold. 50GB/hour",
+    "syslog_severity": "Warning",
+    "source_type": "emc-unity"
+  },
+  {
+    "hostname": "wan-router-04.wan.example.com",
+    "timestamp": "2025-01-15T14:31:41Z",
+    "message": "%MPLS-4-LSRID_MISMATCH: LDP router ID mismatch with neighbor 192.168.255.5",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "dhcp-server-15.internal.example.com",
+    "timestamp": "2025-01-15T14:31:43Z",
+    "message": "dhcpd[7890]: DHCPREQUEST for 10.0.0.100 from 00:11:22:33:44:55 via eth0: lease 10.0.0.100 unavailable",
+    "syslog_severity": "Warning",
+    "source_type": "isc-dhcp"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:31:45Z",
+    "message": "%VRRP-6-STATECHANGE: GigabitEthernet0/2/0 Grp 20 state Backup -> Master",
+    "syslog_severity": "Info",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "server-app-16.prod.example.com",
+    "timestamp": "2025-01-15T14:31:47Z",
+    "message": "tomcat[5678]: SEVERE: Error listenerStart context /app",
+    "syslog_severity": "Error",
+    "source_type": "tomcat"
+  },
+  {
+    "hostname": "dist-switch-03.campus.example.com",
+    "timestamp": "2025-01-15T14:31:49Z",
+    "message": "%DTP-5-ILGLCFG: Illegal config (on, isl -- on,dot1q) on Gi1/0/30",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:31:51Z",
+    "message": "%ASA-7-609001: Built local-host outside:203.0.113.99",
+    "syslog_severity": "Debug",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "backup-server-17.backup.example.com",
+    "timestamp": "2025-01-15T14:31:53Z",
+    "message": "bacula-dir[4567]: Backup job 'DB-Full' completed: 1,234,567 files, 500GB, 95% compression",
+    "syslog_severity": "Info",
+    "source_type": "bacula"
+  },
+  {
+    "hostname": "radius-server-09.auth.example.com",
+    "timestamp": "2025-01-15T14:31:55Z",
+    "message": "radiusd[5678]: auth: Login failed: [invaliduser] (from client vpn-concentrator port 0)",
+    "syslog_severity": "Warning",
+    "source_type": "freeradius"
+  },
+  {
+    "hostname": "access-switch-05.wireless.example.com",
+    "timestamp": "2025-01-15T14:31:57Z",
+    "message": "%UDLD-4-UDLD_PORT_DISABLED: UDLD disabled interface Gi1/0/40, unidirectional link detected",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "wireless-controller-12.campus.example.com",
+    "timestamp": "2025-01-15T14:31:59Z",
+    "message": "%DOT11-2-FREQ_USED: Interface Dot11Radio1, channel 6 already in use by another device",
+    "syslog_severity": "Critical",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "storage-array-13.storage.example.com",
+    "timestamp": "2025-01-15T14:32:01Z",
+    "message": "The system has detected that battery backup unit (BBU) 1 needs to be replaced",
+    "syslog_severity": "Error",
+    "source_type": "emc-unity"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:32:03Z",
+    "message": "%SYS-6-TIMEZONE_CHG: System timezone changed to America/New_York",
+    "syslog_severity": "Info",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "hypervisor-14.prod.example.com",
+    "timestamp": "2025-01-15T14:32:05Z",
+    "message": "ESXi kernel: VM vm-123 triggered MAC address conflict with 00:50:56:01:23:45",
+    "syslog_severity": "Error",
+    "source_type": "vmware-esxi"
+  },
+  {
+    "hostname": "idp-sensor-11.security.example.com",
+    "timestamp": "2025-01-15T14:32:07Z",
+    "message": "IDS: Malware detection: Trojan.GenericKD.123456 from 203.0.113.200",
+    "syslog_severity": "Alert",
+    "source_type": "snort"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:32:09Z",
+    "message": "%ASA-4-402119: IPSEC: Received an ESP packet from 203.0.113.30 to 192.0.2.5 with invalid spi",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "wan-router-04.wan.example.com",
+    "timestamp": "2025-01-15T14:32:11Z",
+    "message": "%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0/1/0 (1), with dist-switch-03 GigabitEthernet1/0/20 (50)",
+    "syslog_severity": "Warning",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "dhcp-server-15.internal.example.com",
+    "timestamp": "2025-01-15T14:32:13Z",
+    "message": "dhcpd[7890]: DHCPACK on 10.0.0.55 to 00:11:22:33:44:55 via eth0",
+    "syslog_severity": "Info",
+    "source_type": "isc-dhcp"
+  },
+  {
+    "hostname": "server-db-06.prod.example.com",
+    "timestamp": "2025-01-15T14:32:15Z",
+    "message": "mysqld[1234]: [Warning] Access denied for user 'root'@'10.0.0.45' (using password: YES)",
+    "syslog_severity": "Warning",
+    "source_type": "mysql"
+  },
+  {
+    "hostname": "core-router-01.dc1.example.com",
+    "timestamp": "2025-01-15T14:32:17Z",
+    "message": "%SYS-2-MALLOCFAIL: Memory allocation of 65536 bytes failed from 0x40123456, alignment 0",
+    "syslog_severity": "Critical",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "dist-switch-03.campus.example.com",
+    "timestamp": "2025-01-15T14:32:19Z",
+    "message": "%ILPOWER-5-IEEE_DISCONNECT: Interface Gi1/0/15: PD removed",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "server-app-16.prod.example.com",
+    "timestamp": "2025-01-15T14:32:21Z",
+    "message": "php-fpm[2345]: WARNING: [pool www] server reached pm.max_children setting (50)",
+    "syslog_severity": "Warning",
+    "source_type": "php-fpm"
+  },
+  {
+    "hostname": "edge-fw-02.edge.example.com",
+    "timestamp": "2025-01-15T14:32:23Z",
+    "message": "%ASA-6-302014: Teardown TCP connection 98765 for outside:198.51.100.30 to inside:10.0.0.15 duration 0:05:20 bytes 12345",
+    "syslog_severity": "Info",
+    "source_type": "cisco-asa"
+  },
+  {
+    "hostname": "access-switch-05.wireless.example.com",
+    "timestamp": "2025-01-15T14:32:25Z",
+    "message": "%ENV_MONITOR-2-FANTRAY_BAD: Fantray 2 is in a BAD condition",
+    "syslog_severity": "Critical",
+    "trap_oid": "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "storage-array-13.storage.example.com",
+    "timestamp": "2025-01-15T14:32:27Z",
+    "message": "FAST Cache disabled due to excessive number of dirty pages",
+    "syslog_severity": "Error",
+    "source_type": "emc-unity"
+  },
+  {
+    "hostname": "wireless-controller-12.campus.example.com",
+    "timestamp": "2025-01-15T14:32:29Z",
+    "message": "%DOT11-5-EXPECTED_FAIL: Interface Dot11Radio0, failed to associate with 00:11:22:33:44:55",
+    "syslog_severity": "Notice",
+    "source_type": "cisco-ios"
+  },
+  {
+    "hostname": "idp-sensor-11.security.example.com",
+    "timestamp": "2025-01-15T14:32:31Z",
+    "message": "IDS: Port scan detected from 203.0.113.150 scanning 1000 ports in 60 seconds",
+    "syslog_severity": "Alert",
+    "source_type": "snort"
+  }
+]

@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""
+=====================================================================
+MUTT Ingest Webhook Service (v2.3 - Production Ready)
+=====================================================================
+This service is Component #1 of the MUTT architecture (The "Front Door").
+
+It provides a single, high-performance, authenticated webhook endpoint:
+- Listens for POSTs at '/' from monitoring sources (e.g., SolarWinds)
+- Validates JSON
+- Adds a '_correlation_id' for tracing
+- Pushes the raw message to the 'mutt:ingest_queue' in Redis
+- Immediately returns '202 Accepted'
+
+It also provides:
+- Health check at '/health' (checks Redis)
+- Prometheus metrics at '/metrics'
+- API key authentication
+- Vault integration for secrets
+
+Author: MUTT Team
+Version: 2.3
+=====================================================================
+"""
+
+import os
+import sys
+import json
+import redis
+import hvac
+import logging
+import signal
+import uuid
+import time
+import threading
+import secrets as secrets_module
+from flask import Flask, jsonify, Response, request
+from prometheus_flask_exporter import PrometheusMetrics
+from prometheus_client import Counter, Histogram, generate_latest, REGISTRY
+from functools import wraps
+
+# =====================================================================
+# PROMETHEUS METRICS
+# =====================================================================
+
+METRIC_INGEST_REQUESTS_TOTAL = Counter(
+    'mutt_ingest_requests_total',
+    'Total requests to the ingest webhook',
+    ['status']  # success, fail_auth, fail_json, fail_redis, fail_unknown
+)
+
+METRIC_INGEST_LATENCY = Histogram(
+    'mutt_ingest_latency_seconds',
+    'Request processing latency for the ingest webhook',
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+)
+
+METRIC_REDIS_PUSH_LATENCY = Histogram(
+    'mutt_ingest_redis_push_latency_ms',
+    'Redis LPUSH latency in milliseconds',
+    buckets=[1, 5, 10, 25, 50, 100, 250, 500]
+)
+
+# =====================================================================
+# LOGGING SETUP
+# =====================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class CorrelationIdFilter(logging.Filter):
+    """Automatically adds correlation ID to all log records."""
+    def filter(self, record):
+        try:
+            record.correlation_id = request.correlation_id
+        except (RuntimeError, AttributeError):
+            record.correlation_id = "system"
+        return True
+
+
+logger.addFilter(CorrelationIdFilter())
+
+# =====================================================================
+# CONFIGURATION
+# =====================================================================
+
+class Config:
+    """Service configuration loaded from environment variables."""
+
+    def __init__(self):
+        try:
+            # Service Identity
+            self.PORT = int(os.environ.get('SERVER_PORT_INGEST', 8080))
+            self.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+
+            # Redis Config (for queue)
+            self.REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
+            self.REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+            self.REDIS_TLS_ENABLED = os.environ.get('REDIS_TLS_ENABLED', 'true').lower() == 'true'
+            self.REDIS_CA_CERT_PATH = os.environ.get('REDIS_CA_CERT_PATH')
+            self.REDIS_MAX_CONNECTIONS = int(os.environ.get('REDIS_MAX_CONNECTIONS', 10))
+            self.INGEST_QUEUE_NAME = os.environ.get('INGEST_QUEUE_NAME', 'mutt:ingest_queue')
+
+            # Vault Config
+            self.VAULT_ADDR = os.environ.get('VAULT_ADDR')
+            self.VAULT_ROLE_ID = os.environ.get('VAULT_ROLE_ID')
+            self.VAULT_SECRET_ID_FILE = os.environ.get('VAULT_SECRET_ID_FILE',
+'/etc/mutt/secrets/vault_secret_id')
+            self.VAULT_SECRETS_PATH = os.environ.get('VAULT_SECRETS_PATH', 'secret/mutt')
+            self.VAULT_TOKEN_RENEW_THRESHOLD = int(os.environ.get('VAULT_TOKEN_RENEW_THRESHOLD', 3600))
+            self.VAULT_RENEW_CHECK_INTERVAL = int(os.environ.get('VAULT_RENEW_CHECK_INTERVAL', 300))
+
+            # Validate
+            self._validate()
+
+        except Exception as e:
+            logger.error(f"FATAL: Configuration error: {e}")
+            sys.exit(1)
+
+    def _validate(self):
+        """Validate critical configuration values."""
+        if not self.VAULT_ADDR:
+            raise ValueError("VAULT_ADDR is required but not set")
+        if not self.VAULT_ROLE_ID:
+            raise ValueError("VAULT_ROLE_ID is required but not set")
+        if self.PORT < 1 or self.PORT > 65535:
+            raise ValueError(f"PORT invalid: {self.PORT}")
+
+        logger.setLevel(self.LOG_LEVEL)
+        logger.info("Configuration loaded and validated successfully")
+
+# =====================================================================
+# VAULT SECRET MANAGEMENT
+# =====================================================================
+
+def fetch_secrets(app):
+    """Connects to Vault, fetches secrets, and starts renewal thread."""
+    config = app.config["MUTT_CONFIG"]
+
+    try:
+        logger.info(f"Connecting to Vault at {config.VAULT_ADDR}...")
+        vault_client = hvac.Client(url=config.VAULT_ADDR)
+
+        if not os.path.exists(config.VAULT_SECRET_ID_FILE):
+            raise FileNotFoundError(f"Vault secret ID file not found: {config.VAULT_SECRET_ID_FILE}")
+
+        with open(config.VAULT_SECRET_ID_FILE, 'r') as f:
+            secret_id = f.read().strip()
+
+        if not secret_id:
+            raise ValueError("Vault secret ID file is empty")
+
+        auth_response = vault_client.auth.approle.login(
+            role_id=config.VAULT_ROLE_ID,
+            secret_id=secret_id
+        )
+
+        if not vault_client.is_authenticated():
+            raise Exception("Vault authentication failed.")
+
+        logger.info("Successfully authenticated to Vault")
+        logger.info(f"Token TTL: {auth_response['auth']['lease_duration']}s")
+
+        response = vault_client.secrets.kv.v2.read_secret_version(
+            path=config.VAULT_SECRETS_PATH
+        )
+        data = response['data']['data']
+
+        app.config["SECRETS"] = {
+            "REDIS_PASS": data.get('REDIS_PASS'),
+            "INGEST_API_KEY": data.get('INGEST_API_KEY', 'dev-ingest-key-please-change')
+        }
+
+        if not app.config["SECRETS"]["REDIS_PASS"]:
+            raise ValueError("REDIS_PASS not found in Vault")
+        if not app.config["SECRETS"]["INGEST_API_KEY"]:
+            raise ValueError("INGEST_API_KEY not found in Vault")
+
+        logger.info("Successfully loaded secrets from Vault")
+
+        # Store client and start renewal
+        app.config["VAULT_CLIENT"] = vault_client
+        start_vault_token_renewal(app)
+
+    except Exception as e:
+        logger.error(f"FATAL: Failed to fetch secrets from Vault: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def start_vault_token_renewal(app):
+    """Starts a background daemon thread for Vault token renewal."""
+    config = app.config["MUTT_CONFIG"]
+    vault_client = app.config["VAULT_CLIENT"]
+    stop_event = threading.Event()
+    app.config["VAULT_RENEWAL_STOP"] = stop_event
+
+    def renewal_loop():
+        logger.info("Vault token renewal thread started")
+        while not stop_event.is_set():
+            try:
+                stop_event.wait(config.VAULT_RENEW_CHECK_INTERVAL)
+                if stop_event.is_set():
+                    break
+
+                token_info = vault_client.auth.token.lookup_self()['data']
+                ttl = token_info['ttl']
+                renewable = token_info.get('renewable', False)
+
+                if renewable and ttl < config.VAULT_TOKEN_RENEW_THRESHOLD:
+                    logger.info(f"Renewing Vault token (TTL: {ttl}s)...")
+                    vault_client.auth.token.renew_self()
+
+            except Exception as e:
+                logger.error(f"Error in Vault token renewal: {e}")
+
+        logger.info("Vault token renewal thread stopped")
+
+    thread = threading.Thread(target=renewal_loop, daemon=True, name="VaultTokenRenewal")
+    thread.start()
+    app.config["VAULT_RENEWAL_THREAD"] = thread
+    logger.info("Vault token renewal thread started")
+
+# =====================================================================
+# REDIS CONNECTION POOL
+# =====================================================================
+
+def create_redis_pool(app):
+    """Creates a Redis connection pool and stores it on the app."""
+    config = app.config["MUTT_CONFIG"]
+    secrets = app.config["SECRETS"]
+
+    try:
+        logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
+
+        pool_kwargs = {
+            'host': config.REDIS_HOST,
+            'port': config.REDIS_PORT,
+            'password': secrets["REDIS_PASS"],
+            'decode_responses': True,
+            'socket_connect_timeout': 5,
+            'max_connections': config.REDIS_MAX_CONNECTIONS,
+        }
+
+        if config.REDIS_TLS_ENABLED:
+            pool_kwargs['ssl'] = True
+            pool_kwargs['ssl_cert_reqs'] = 'required'
+            if config.REDIS_CA_CERT_PATH:
+                pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
+
+        pool = redis.ConnectionPool(**pool_kwargs)
+        app.redis_pool = pool
+
+        # Test connection
+        r = redis.Redis(connection_pool=pool)
+        r.ping()
+
+        logger.info("Successfully connected to Redis")
+
+    except Exception as e:
+        logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)
+        sys.exit(1)
+
+# =====================================================================
+# AUTHENTICATION DECORATOR
+# =====================================================================
+
+def require_api_key(f):
+    """Decorator to require API key authentication."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Get API key from header or query parameter
+        api_key = request.headers.get('X-API-KEY') or request.args.get('api_key')
+        expected_key = request.app.config["SECRETS"]["INGEST_API_KEY"]
+
+        # Use constant-time comparison
+        if not api_key or not secrets_module.compare_digest(api_key, expected_key):
+            logger.warning(f"Authentication failed from {request.remote_addr}")
+            METRIC_INGEST_REQUESTS_TOTAL.labels(status='fail_auth').inc()
+            return jsonify({"error": "Unauthorized", "correlation_id": "auth-failed"}), 401
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+# =====================================================================
+# FLASK APPLICATION FACTORY
+# =====================================================================
+
+def create_app():
+    """Creates and configures the Flask application."""
+
+    app = Flask(__name__)
+
+    # Load configuration
+    app.config["MUTT_CONFIG"] = Config()
+
+    # Fetch secrets and start Vault renewal
+    fetch_secrets(app)
+
+    # Initialize connection pools
+    create_redis_pool(app)
+
+    # Initialize Prometheus metrics (disable default path)
+    PrometheusMetrics(app, path=None)
+
+    # ================================================================
+    # REQUEST LIFECYCLE HOOKS
+    # ================================================================
+
+    @app.before_request
+    def setup_request_context():
+        """Set up request-specific context."""
+        request.correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
+        request.start_time = time.time()
+
+    @app.after_request
+    def log_request(response):
+        """Log request after processing."""
+        if hasattr(request, 'start_time'):
+            duration = time.time() - request.start_time
+            logger.info(
+                f"{request.method} {request.path} - "
+                f"Status: {response.status_code} - "
+                f"Duration: {duration:.3f}s"
+            )
+        return response
+
+    # ================================================================
+    # PUBLIC ENDPOINTS (NO AUTH)
+    # ================================================================
+
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        """Health check for load balancers and orchestrators."""
+        try:
+            # Check Redis
+            r = redis.Redis(connection_pool=app.redis_pool)
+            r.ping()
+
+            return jsonify({
+                "status": "healthy",
+                "service": "mutt-ingest",
+                "version": "2.3",
+                "redis": "connected"
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return jsonify({
+                "status": "unhealthy",
+                "service": "mutt-ingest",
+                "version": "2.3",
+                "error": str(e)
+            }), 503
+
+    @app.route('/metrics', methods=['GET'])
+    def prometheus_metrics():
+        """Prometheus metrics endpoint."""
+        return Response(generate_latest(REGISTRY), mimetype='text-plain')
+
+    # ================================================================
+    # MAIN INGEST ENDPOINT (AUTH)
+    # ================================================================
+
+    @app.route('/', methods=['POST'])
+    @require_api_key
+    def ingest_alert():
+        """
+        Main webhook endpoint.
+        Receives JSON, adds correlation ID, and pushes to Redis.
+        """
+        with METRIC_INGEST_LATENCY.time():
+            try:
+                data = request.get_json(silent=True)
+
+                if not data:
+                    logger.warning("Request body is not valid JSON")
+                    METRIC_INGEST_REQUESTS_TOTAL.labels(status='fail_json').inc()
+                    return jsonify({
+                        "error": "Request body must be valid JSON",
+                        "correlation_id": request.correlation_id
+                    }), 400
+                
+                # Add correlation ID to the message body for tracing
+                data['_correlation_id'] = request.correlation_id
+
+                # Serialize back to a string for Redis
+                message_string = json.dumps(data)
+                
+                # Get Redis connection from pool
+                r = redis.Redis(connection_pool=app.redis_pool)
+                config = app.config["MUTT_CONFIG"]
+                
+                # Push to the ingest queue
+                start_time = time.time()
+                r.lpush(config.INGEST_QUEUE_NAME, message_string)
+                redis_latency = (time.time() - start_time) * 1000  # in ms
+                METRIC_REDIS_PUSH_LATENCY.observe(redis_latency)
+
+                # Success
+                METRIC_INGEST_REQUESTS_TOTAL.labels(status='success').inc()
+                return jsonify({
+                    "status": "accepted",
+                    "correlation_id": request.correlation_id
+                }), 202
+
+            except redis.exceptions.RedisError as e:
+                logger.error(f"Failed to push message to Redis queue: {e}")
+                METRIC_INGEST_REQUESTS_TOTAL.labels(status='fail_redis').inc()
+                return jsonify({
+                    "error": "Failed to queue message",
+                    "correlation_id": request.correlation_id
+                }), 503
+            
+            except Exception as e:
+                logger.error(f"Unhandled error during ingest: {e}", exc_info=True)
+                METRIC_INGEST_REQUESTS_TOTAL.labels(status='fail_unknown').inc()
+                return jsonify({
+                    "error": "Internal server error",
+                    "correlation_id": request.correlation_id
+                }), 500
+
+    return app
+
+# =====================================================================
+# GRACEFUL SHUTDOWN
+# =====================================================================
+
+def setup_signal_handlers(app):
+    """Set up signal handlers for graceful shutdown."""
+
+    def shutdown_handler(signum, frame):
+        sig_name = 'SIGTERM' if signum == signal.SIGTERM else 'SIGINT'
+        logger.warning(f"{sig_name} received. Initiating graceful shutdown...")
+
+        # Stop Vault token renewal thread
+        if "VAULT_RENEWAL_STOP" in app.config:
+            logger.info("Stopping Vault token renewal thread...")
+            app.config["VAULT_RENEWAL_STOP"].set()
+            if "VAULT_RENEWAL_THREAD" in app.config:
+                app.config["VAULT_RENEWAL_THREAD"].join(timeout=5)
+                logger.info("Vault token renewal thread stopped")
+
+        logger.info("Graceful shutdown complete. Exiting.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+    logger.info("Signal handlers registered for graceful shutdown")
+
+# =====================================================================
+# MAIN ENTRY POINT
+# =====================================================================
+
+if __name__ == '__main__':
+    app = create_app()
+    setup_signal_handlers(app)
+    port = app.config["MUTT_CONFIG"].PORT
+
+    logger.info("=" * 70)
+    logger.info("MUTT Ingest Webhook Service v2.3 - Production Ready")
+    logger.info("=" * 70)
+    logger.warning("Running in DEBUG mode - DO NOT USE IN PRODUCTION")
+    logger.info("")
+    logger.info("For production, use Gunicorn:")
+    logger.info("  gunicorn --bind 0.0.0.0:8080 --workers 4 \\")
+    logger.info("           --timeout 30 --worker-class sync \\")
+    logger.info("           'ingest_service:create_app()'")
+    logger.info("")
+    logger.info(f"Ingest: http://localhost:{port}/ (POST, requires X-API-KEY)")
+    logger.info(f"Health: http://localhost:{port}/health (GET)")
+    logger.info(f"Metrics: http://localhost:{port}/metrics (GET)")
+    logger.info("=" * 70)
+
+    app.run(host='0.0.0.0', port=port, debug=True)

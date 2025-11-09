@@ -1,0 +1,322 @@
+# =====================================================================
+# MUTT v2.3 - Prometheus Alerting Rules
+# =====================================================================
+# This file defines 24 alerting rules for monitoring MUTT services.
+#
+# Alert Severity Levels:
+#   - critical: Immediate action required (service down, data loss risk)
+#   - warning:  Attention needed (degraded performance, approaching limits)
+#   - info:     Informational (notable events)
+# =====================================================================
+
+groups:
+  # ===================================================================
+  # Service Availability Alerts
+  # ===================================================================
+  - name: mutt_service_availability
+    interval: 30s
+    rules:
+      - alert: MUTTIngestorDown
+        expr: up{job="mutt-ingestor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ingestor
+        annotations:
+          summary: "MUTT Ingestor service is DOWN on {{ $labels.instance }}"
+          description: "The Ingestor service on {{ $labels.instance }} has been down for more than 1 minute."
+          impact: "New syslog/SNMP messages cannot be ingested. Message loss risk if rsyslog buffer fills."
+          action: "Check service status: systemctl status mutt-ingestor. Review logs: journalctl -u mutt-ingestor -f"
+
+      - alert: MUTTAlerterDown
+        expr: up{job="mutt-alerter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: alerter
+        annotations:
+          summary: "MUTT Alerter service is DOWN on {{ $labels.instance }}"
+          description: "The Alerter service on {{ $labels.instance }} has been down for more than 1 minute."
+          impact: "Messages are accumulating in ingest_queue. Processing stopped. Alerts not being sent to Moog."
+          action: "Check service status and processing list for orphaned messages. Janitor should recover on restart."
+
+      - alert: MUTTMoogForwarderDown
+        expr: up{job="mutt-moog-forwarder"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: moog-forwarder
+        annotations:
+          summary: "MUTT Moog Forwarder service is DOWN on {{ $labels.instance }}"
+          description: "The Moog Forwarder service on {{ $labels.instance }} has been down for more than 1 minute."
+          impact: "Alerts are accumulating in alert_queue. Moogsoft not receiving alerts."
+          action: "Check service status and processing list. Verify Moog webhook connectivity."
+
+      - alert: MUTTWebUIDown
+        expr: up{job="mutt-webui"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: webui
+        annotations:
+          summary: "MUTT Web UI service is DOWN on {{ $labels.instance }}"
+          description: "The Web UI service on {{ $labels.instance }} has been down for more than 2 minutes."
+          impact: "Dashboard and management API unavailable. Core processing continues."
+          action: "Check service status: systemctl status mutt-webui"
+
+  # ===================================================================
+  # Queue Depth Alerts
+  # ===================================================================
+  - name: mutt_queue_depth
+    interval: 30s
+    rules:
+      - alert: MUTTIngestQueueFull
+        expr: mutt_ingest_queue_depth >= 1000000
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MUTT ingest queue is FULL ({{ $value }} messages)"
+          description: "Ingest queue has reached capacity (1M messages)."
+          impact: "Ingestor returning 503. Risk of message loss if rsyslog buffer fills."
+          action: "URGENT: Scale Alerter pods immediately or clear queue backlog."
+
+      - alert: MUTTIngestQueueHigh
+        expr: mutt_ingest_queue_depth >= 500000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT ingest queue is HIGH ({{ $value }} messages)"
+          description: "Ingest queue depth is above 500K (50% capacity)."
+          impact: "Processing lag increasing. Risk of hitting capacity."
+          action: "Consider scaling Alerter pods or investigate processing bottleneck."
+
+      - alert: MUTTAlertQueueHigh
+        expr: mutt_alert_queue_depth >= 100000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT alert queue is HIGH ({{ $value }} messages)"
+          description: "Alert queue depth is above 100K messages."
+          impact: "Alerts delayed to Moogsoft. Check Moog Forwarder throughput."
+          action: "Scale Moog Forwarder pods or investigate rate limiting/Moog connectivity."
+
+  # ===================================================================
+  # Performance Alerts
+  # ===================================================================
+  - name: mutt_performance
+    interval: 30s
+    rules:
+      - alert: MUTTIngestorHighLatency
+        expr: histogram_quantile(0.95, rate(mutt_ingest_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Ingestor has high latency (p95: {{ $value }}s)"
+          description: "95th percentile request latency is above 1 second."
+          impact: "Slow message ingestion. Risk of rsyslog timeouts."
+          action: "Check Redis connectivity, CPU, and network latency."
+
+      - alert: MUTTAlerterProcessingLag
+        expr: rate(mutt_alerter_messages_processed_total[5m]) < 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Alerter processing rate is LOW ({{ $value }}/sec)"
+          description: "Alerter processing fewer than 100 messages/sec for 10 minutes."
+          impact: "Queue backlog growing. Processing lag increasing."
+          action: "Check database latency, rule complexity, and resource utilization."
+
+      - alert: MUTTDatabaseWriteLatency
+        expr: histogram_quantile(0.95, rate(mutt_db_write_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT database write latency is HIGH (p95: {{ $value }}s)"
+          description: "95th percentile database write latency is above 500ms."
+          impact: "Slow audit log writes. Processing throughput reduced."
+          action: "Check PostgreSQL performance, connection pool, and disk I/O."
+
+  # ===================================================================
+  # Error Rate Alerts
+  # ===================================================================
+  - name: mutt_error_rates
+    interval: 30s
+    rules:
+      - alert: MUTTIngestorHighAuthFailureRate
+        expr: rate(mutt_ingest_requests_total{status="fail_auth"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Ingestor has high auth failure rate ({{ $value }}/sec)"
+          description: "More than 10 authentication failures per second for 5 minutes."
+          impact: "Possible security issue or misconfigured rsyslog API key."
+          action: "Verify rsyslog API key configuration. Check for unauthorized access attempts."
+
+      - alert: MUTTIngestorHighRedisErrorRate
+        expr: rate(mutt_ingest_requests_total{status="fail_redis"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MUTT Ingestor has high Redis error rate ({{ $value }}/sec)"
+          description: "More than 5 Redis errors per second for 2 minutes."
+          impact: "Messages not being queued. Potential message loss."
+          action: "Check Redis connectivity, health, and resource utilization."
+
+      - alert: MUTTMoogForwarderHighFailureRate
+        expr: rate(mutt_moog_forward_total{status="failed"}[5m]) / rate(mutt_moog_forward_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Moog Forwarder has high failure rate ({{ $value | humanizePercentage }})"
+          description: "More than 10% of Moog forward attempts are failing."
+          impact: "Alerts may be lost or delayed to Moogsoft."
+          action: "Check Moog webhook connectivity, credentials, and response status codes."
+
+      - alert: MUTTMoogDLQGrowing
+        expr: rate(mutt_moog_dlq_messages_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Moog DLQ is growing ({{ $value }} messages/sec)"
+          description: "Messages are being sent to dead letter queue."
+          impact: "Alerts not delivered to Moogsoft after max retries."
+          action: "Review DLQ messages, check Moog webhook status codes, investigate 4xx errors."
+
+  # ===================================================================
+  # Resource Alerts
+  # ===================================================================
+  - name: mutt_resources
+    interval: 30s
+    rules:
+      - alert: MUTTRedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Redis memory usage is HIGH ({{ $value | humanizePercentage }})"
+          description: "Redis memory usage is above 80% of max memory."
+          impact: "Risk of Redis OOM, eviction policy will activate."
+          action: "Review queue depths, clear old data, or increase Redis memory."
+
+      - alert: MUTTPostgreSQLConnectionPoolExhausted
+        expr: mutt_db_pool_connections_active / mutt_db_pool_connections_max > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT PostgreSQL connection pool nearly exhausted ({{ $value | humanizePercentage }})"
+          description: "More than 90% of database connection pool in use."
+          impact: "New database operations may be blocked or slow."
+          action: "Increase pool size or investigate long-running queries."
+
+  # ===================================================================
+  # Rate Limiting Alerts
+  # ===================================================================
+  - name: mutt_rate_limiting
+    interval: 30s
+    rules:
+      - alert: MUTTMoogRateLimitHit
+        expr: rate(mutt_moog_rate_limit_hits_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "MUTT Moog rate limiter is being hit frequently ({{ $value }}/sec)"
+          description: "Moog rate limiter triggered more than 10 times/sec for 5 minutes."
+          impact: "Alerts delayed to Moogsoft due to rate limiting."
+          action: "Consider increasing rate limit or investigate alert volume spike."
+
+  # ===================================================================
+  # Dependency Health Alerts
+  # ===================================================================
+  - name: mutt_dependencies
+    interval: 30s
+    rules:
+      - alert: MUTTVaultTokenExpiring
+        expr: mutt_vault_token_ttl_seconds < 86400
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT Vault token expiring soon ({{ $value | humanizeDuration }})"
+          description: "Vault token TTL is below 24 hours."
+          impact: "Risk of service disruption if token renewal fails."
+          action: "Verify Vault token renewal is working. Check Vault connectivity."
+
+  # ===================================================================
+  # Business Logic Alerts
+  # ===================================================================
+  - name: mutt_business_logic
+    interval: 30s
+    rules:
+      - alert: MUTTUnhandledEventThresholdReached
+        expr: increase(mutt_unhandled_events_total[1h]) > 100
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "MUTT has many unhandled events ({{ $value }} in 1h)"
+          description: "More than 100 events did not match any alert rule in the last hour."
+          impact: "Events not being alerted to Moogsoft. Possible rule gap."
+          action: "Review unhandled events, create new alert rules if needed."
+
+      - alert: MUTTPoisonMessagesDetected
+        expr: increase(mutt_poison_messages_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT has poison messages ({{ $value }} in 5m)"
+          description: "More than 5 messages failed processing after max retries."
+          impact: "Messages moved to DLQ, not processed normally."
+          action: "Review poison messages for malformed data or processing bugs."
+
+  # ===================================================================
+  # Throughput Monitoring (Informational)
+  # ===================================================================
+  - name: mutt_throughput
+    interval: 30s
+    rules:
+      - alert: MUTTIngestRateSpike
+        expr: rate(mutt_ingest_requests_total{status="success"}[5m]) > 1000
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "MUTT ingest rate is very high ({{ $value }}/sec)"
+          description: "Ingest rate above 1000 messages/sec for 10 minutes."
+          impact: "High load on system. Monitor queue depths and latency."
+          action: "Normal if expected. Investigate if unusual for time of day."
+
+      - alert: MUTTIngestRateDrop
+        expr: rate(mutt_ingest_requests_total{status="success"}[5m]) < 10 and hour() >= 9 and hour() <= 17
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "MUTT ingest rate is very low ({{ $value }}/sec) during business hours"
+          description: "Ingest rate below 10 messages/sec for 30 minutes during business hours."
+          impact: "Possible upstream issue with rsyslog or network devices."
+          action: "Verify rsyslog is forwarding messages. Check network device health."
+
+# =====================================================================
+# Alert Configuration Notes
+# =====================================================================
+# - Adjust thresholds based on your environment and baseline metrics
+# - critical alerts should page on-call
+# - warning alerts should create tickets
+# - info alerts are for visibility and trend analysis
+# - Use Alertmanager for routing, grouping, and silencing
+# - Test alerts with: amtool alert add alertname
+# =====================================================================

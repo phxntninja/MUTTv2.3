@@ -1,0 +1,36 @@
+# =====================================================================
+# MUTT v2.3 Production Dependencies
+# =====================================================================
+# Install with: pip install -r requirements.txt
+# =====================================================================
+
+# Web Framework
+Flask==2.3.3
+gunicorn==21.2.0
+
+# Database
+psycopg2-binary==2.9.9
+
+# Redis
+redis==5.0.1
+
+# Vault
+hvac==2.0.0
+
+# HTTP Client
+requests==2.31.0
+
+# Monitoring
+prometheus-client==0.18.0
+prometheus-flask-exporter==0.23.0
+
+# =====================================================================
+# Version Notes:
+# =====================================================================
+# - Flask 2.3.3: Stable, production-ready
+# - redis 5.0.1: Matches RHEL 8 Redis version
+# - psycopg2-binary: PostgreSQL adapter (binary for easier install)
+# - hvac 2.0.0: Vault client with token renewal support
+# - prometheus-client: Core metrics library
+# - prometheus-flask-exporter: Flask integration for metrics
+# =====================================================================
