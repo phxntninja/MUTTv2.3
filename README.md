@@ -347,6 +347,10 @@
   ---
   ⚙️ Configuration
 
+  Note on Dynamic Configuration (v2.5): Set `DYNAMIC_CONFIG_ENABLED=true` to enable runtime reads from Redis for select settings (e.g., Alerter cache interval, unhandled thresholds; Moog rate limits). When disabled, services use static environment values.
+
+  Development Standards: See `docs/DEVELOPMENT_STANDARDS.md` for Black/isort/Ruff/MyPy usage and local commands.
+
   Ingestor Service Configuration
 
   | Variable                    | Default                           | Description                      |
