@@ -40,7 +40,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service files
-COPY services/ ./
+COPY services/ ./services/
 
 # Create non-root user
 RUN useradd -m -u 1000 mutt && chown -R mutt:mutt /app
@@ -66,7 +66,7 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "ingestor_service:create_app()"]
+     "services.ingestor_service:create_app()"]
 
 # =====================================================================
 # Alerter Service

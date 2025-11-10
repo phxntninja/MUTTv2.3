@@ -591,7 +591,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
     CorrelationID.set(correlation_id)
 
     # Phase 3A - Check circuit breaker state
-        if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+    if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
         if circuit_breaker.is_open():
             logger.warning("Circuit breaker is OPEN. Skipping Moogsoft request.")
             METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='circuit_open').inc()
