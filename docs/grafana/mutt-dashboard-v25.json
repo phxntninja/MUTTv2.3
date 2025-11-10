@@ -1,0 +1,59 @@
+{
+  "uid": "mutt-v25",
+  "title": "MUTT v2.5 Overview",
+  "schemaVersion": 36,
+  "version": 1,
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Ingest Queue Depth",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "mutt_ingest_queue_depth"}]
+    },
+    {
+      "type": "stat",
+      "title": "Unhandled Meta-Alerts (Total)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(mutt_alerter_unhandled_meta_alerts_total)"}]
+    },
+    {
+      "type": "graph",
+      "title": "Ingest Rate (1m)",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 6},
+      "targets": [{"expr": "rate(mutt_ingest_requests_total{status=\"success\"}[1m])"}]
+    },
+    {
+      "type": "graph",
+      "title": "Alerter Events Processed Rate (5m)",
+      "gridPos": {"x": 0, "y": 10, "w": 12, "h": 6},
+      "targets": [{"expr": "rate(mutt_alerter_events_processed_total[5m])"}]
+    },
+    {
+      "type": "graph",
+      "title": "Ingest p95 Latency",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(mutt_ingest_latency_seconds_bucket[5m])) by (le))"
+      }]
+    },
+    {
+      "type": "graph",
+      "title": "Alerter p95 Processing Latency",
+      "gridPos": {"x": 0, "y": 22, "w": 12, "h": 6},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(mutt_alerter_processing_latency_seconds_bucket[5m])) by (le))"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Moog Rate Limit Hits (5m)",
+      "gridPos": {"x": 0, "y": 28, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(rate(mutt_moog_rate_limit_hits_total[5m]))"}]
+    }
+  ],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]}
+}
+

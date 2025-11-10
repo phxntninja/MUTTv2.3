@@ -15,8 +15,15 @@
 
 # =====================================================================
 # Base Stage - Common dependencies
+#
+# Multi-arch note:
+# - This Dockerfile pins a linux/amd64 digest for reproducibility.
+# - To build for other architectures, use buildx and override platform:
+#     docker buildx build --platform linux/arm64 -t your/repo:mutt-2.5 --target webui .
+# - Consider pinning the corresponding digest for your target arch.
 # =====================================================================
-FROM python:3.9-slim as base
+# Pinned base image for reproducibility (linux/amd64)
+FROM python:3.10-slim@sha256:2ade04f16d1e0bbde15b0a5a2586e180c060df230333e0d951660020557fcba4 as base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -33,7 +40,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service files
-COPY services/ ./
+COPY services/ ./services/
 
 # Create non-root user
 RUN useradd -m -u 1000 mutt && chown -R mutt:mutt /app
@@ -59,7 +66,7 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "ingestor_service:create_app()"]
+     "services.ingestor_service:create_app()"]
 
 # =====================================================================
 # Alerter Service
@@ -73,7 +80,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8081/health || exit 1
 
 # Run alerter (long-running worker)
-CMD ["python3", "alerter_service.py"]
+CMD ["python3", "services/alerter_service.py"]
 
 # =====================================================================
 # Moog Forwarder Service
@@ -87,7 +94,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8082/health || exit 1
 
 # Run moog forwarder (long-running worker)
-CMD ["python3", "moog_forwarder_service.py"]
+CMD ["python3", "services/moog_forwarder_service.py"]
 
 # =====================================================================
 # Web UI Service
@@ -109,4 +116,4 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "web_ui_service:create_app()"]
+     "services.web_ui_service:create_app()"]

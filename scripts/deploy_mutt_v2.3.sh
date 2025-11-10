@@ -129,7 +129,7 @@
   fi
 
   # Create directory structure
-  mkdir -p /opt/mutt/{venv,logs}
+  mkdir -p /opt/mutt/{venv,logs,services}
   mkdir -p /etc/mutt/{secrets,certs}
   mkdir -p /var/log/mutt
   mkdir -p /var/run/mutt
@@ -143,10 +143,11 @@
 
   # Check if source files exist in current directory
   REQUIRED_FILES=(
-      "ingestor_service.py"
-      "alerter_service.py"
-      "moog_forwarder_service.py"
-      "web_ui_service.py"
+      "services/__init__.py"
+      "services/ingestor_service.py"
+      "services/alerter_service.py"
+      "services/moog_forwarder_service.py"
+      "services/web_ui_service.py"
   )
 
   for file in "${REQUIRED_FILES[@]}"; do
@@ -157,11 +158,12 @@
       fi
   done
 
-  # Copy service files
-  cp ingestor_service.py /opt/mutt/
-  cp alerter_service.py /opt/mutt/
-  cp moog_forwarder_service.py /opt/mutt/
-  cp web_ui_service.py /opt/mutt/
+  # Copy service files into canonical package path
+  cp services/__init__.py /opt/mutt/services/
+  cp services/ingestor_service.py /opt/mutt/services/
+  cp services/alerter_service.py /opt/mutt/services/
+  cp services/moog_forwarder_service.py /opt/mutt/services/
+  cp services/web_ui_service.py /opt/mutt/services/
 
   log_info "Application code deployed ✓"
 
@@ -410,7 +412,7 @@
       --access-logfile /var/log/mutt/ingestor-access.log \
       --error-logfile /var/log/mutt/ingestor-error.log \
       --log-level info \
-      "ingestor_service:create_app()"
+      "services.ingestor_service:create_app()"
 
   # Security hardening
   NoNewPrivileges=true
@@ -445,7 +447,7 @@
   WorkingDirectory=/opt/mutt
   EnvironmentFile=/etc/mutt/mutt.env
 
-  ExecStart=/opt/mutt/venv/bin/python3 alerter_service.py
+  ExecStart=/opt/mutt/venv/bin/python3 -m services.alerter_service
 
   # Security hardening
   NoNewPrivileges=true
@@ -480,7 +482,7 @@
   WorkingDirectory=/opt/mutt
   EnvironmentFile=/etc/mutt/mutt.env
 
-  ExecStart=/opt/mutt/venv/bin/python3 moog_forwarder_service.py
+  ExecStart=/opt/mutt/venv/bin/python3 -m services.moog_forwarder_service
 
   # Security hardening
   NoNewPrivileges=true
@@ -523,7 +525,7 @@
       --access-logfile /var/log/mutt/webui-access.log \
       --error-logfile /var/log/mutt/webui-error.log \
       --log-level info \
-      "web_ui_service:create_app()"
+      "services.web_ui_service:create_app()"
 
   # Security hardening
   NoNewPrivileges=true

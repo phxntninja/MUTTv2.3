@@ -1,0 +1,17 @@
+groups:
+  - name: mutt-slo-recording-rules
+    interval: 1m
+    rules:
+      # Ingestor success rate over variable window
+      - record: mutt:slo:ingestor_success_rate
+        expr: |
+          sum(rate(mutt_ingest_requests_total{status="success"}[$__window]))
+          /
+          sum(rate(mutt_ingest_requests_total[$__window]))
+
+      # Moog forwarder success rate over variable window
+      - record: mutt:slo:forwarder_success_rate
+        expr: |
+          sum(rate(mutt_moog_requests_total{status="success"}[$__window]))
+          /
+          sum(rate(mutt_moog_requests_total[$__window]))

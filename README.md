@@ -31,14 +31,32 @@
   - [Troubleshooting](#troubleshooting)
   - [Contributing](#contributing)
   - [License](#license)
+  - [Observability](#observability)
+  - [What’s New in v2.5](#whats-new-in-v25)
+  - [API Docs](#api-docs)
+  - [Runbook](#runbook)
+  - [Dashboards & Alerts](#dashboards--alerts)
+  - [Developer CLI](#developer-cli)
 
   ---
 
-  ## 🎯 Overview
+## 🎯 Overview
 
-  MUTT provides a robust, fault-tolerant pipeline for processing network events from syslog and SNMP traps. It
-  intelligently routes events based on configurable rules, distinguishes between production and development
-  environments, and forwards alerts to downstream systems like Moogsoft.
+MUTT provides a robust, fault-tolerant pipeline for processing network events from syslog and SNMP traps. It
+intelligently routes events based on configurable rules, distinguishes between production and development
+environments, and forwards alerts to downstream systems like Moogsoft.
+
+Quickstart
+- Developer setup: see `docs/DEV_QUICKSTART.md`
+- Developer CLI: `muttdev` (install with `pip install -e .` to enable console script)
+- Architecture decisions: see `docs/adr/README.md` for key design choices (Redis vs Kafka, Vault, worker architecture, etc.)
+
+v2.5 Highlights (Summary)
+- Dynamic Config: Redis‑backed runtime tuning with Pub/Sub invalidation
+- Observability: Structured logging, metrics, tracing, SLO endpoint and rules
+- Reliability: Backpressure controls, remediation service, circuit breaker patterns
+- Compliance: Audit logging, API versioning, retention automation and docs
+- DevEx: `muttdev` CLI, ADRs, CI across OS/Python, quickstart docs
 
   ### Why MUTT?
 
@@ -177,7 +195,7 @@
 
   ## 🧩 Components
 
-  ### 1. **Ingestor Service** (`ingestor_service.py`)
+  ### 1. **Ingestor Service** (`services/ingestor_service.py`)
   - **Role**: HTTP ingestion endpoint for rsyslog
   - **Port**: 8080 (configurable)
   - **Features**:
@@ -188,7 +206,7 @@
     - Prometheus `/metrics` and `/health` endpoints
     - Redis connection pooling with TLS
 
-  ### 2. **Alerter Service** (`alerter_service.py`)
+  ### 2. **Alerter Service** (`services/alerter_service.py`)
   - **Role**: Core event processing logic ("The Brain")
   - **Ports**: 8081 (metrics), 8082 (health)
   - **Features**:
@@ -201,7 +219,7 @@
     - PostgreSQL connection pooling
     - Poison message DLQ with retry counter
 
-  ### 3. **Moog Forwarder Service** (`moog_forwarder_service.py`)
+  ### 3. **Moog Forwarder Service** (`services/moog_forwarder_service.py`)
   - **Role**: Forwards alerts to Moogsoft with rate limiting
   - **Ports**: 8083 (metrics), 8084 (health)
   - **Features**:
@@ -213,7 +231,7 @@
     - Heartbeat + Janitor pattern
     - Correlation ID tracking
 
-  ### 4. **Web UI Service** (`web_ui_service.py`)
+  ### 4. **Web UI Service** (`services/web_ui_service.py`)
   - **Role**: Management interface and real-time dashboard
   - **Port**: 8090 (configurable)
   - **Features**:
@@ -316,16 +334,16 @@
   6. Start Services (Development)
 
   # Terminal 1: Ingestor
-  python ingestor_service.py
+  python services/ingestor_service.py
 
   # Terminal 2: Alerter
-  python alerter_service.py
+  python services/alerter_service.py
 
   # Terminal 3: Moog Forwarder
-  python moog_forwarder_service.py
+  python services/moog_forwarder_service.py
 
   # Terminal 4: Web UI
-  python web_ui_service.py
+  python services/web_ui_service.py
 
   7. Verify Health
 
@@ -346,6 +364,10 @@
 
   ---
   ⚙️ Configuration
+
+  Note on Dynamic Configuration (v2.5): Set `DYNAMIC_CONFIG_ENABLED=true` to enable runtime reads from Redis for select settings (e.g., Alerter cache interval, unhandled thresholds; Moog rate limits). When disabled, services use static environment values.
+
+  Development Standards: See `docs/DEVELOPMENT_STANDARDS.md` for Black/isort/Ruff/MyPy usage and local commands.
 
   Ingestor Service Configuration
 
@@ -394,6 +416,13 @@
   | DB_HOST                        | localhost                         | PostgreSQL hostname                     |
   | DB_PORT                        | 5432                              | PostgreSQL port                         |
   | DB_NAME                        | mutt_db                           | Database name                           |
+  
+  Backpressure (Dynamic Config)
+  
+  - `alerter_queue_warn_threshold` (default 1000)
+  - `alerter_queue_shed_threshold` (default 2000)
+  - `alerter_shed_mode` (`dlq` or `defer`, default `dlq`)
+  - `alerter_defer_sleep_ms` (default 250)
   | DB_USER                        | mutt_user                         | Database user                           |
   | DB_TLS_ENABLED                 | true                              | Enable TLS for PostgreSQL               |
   | DB_TLS_CA_CERT_PATH            | -                                 | PostgreSQL TLS CA certificate path      |
@@ -483,6 +512,7 @@
   | VAULT_ROLE_ID         | (required)                        | AppRole role ID                    |
   | VAULT_SECRET_ID_FILE  | /etc/mutt/secrets/vault_secret_id | Path to secret ID file             |
   | VAULT_SECRETS_PATH    | secret/mutt                       | Vault KV path                      |
+  | PROMETHEUS_URL        | http://localhost:9090             | Prometheus base URL for SLOs       |
 
   ---
   📡 API Reference
@@ -514,6 +544,22 @@
   | Method | Endpoint        | Description                             |
   |--------|-----------------|-----------------------------------------|
   | GET    | /api/v1/metrics | Real-time EPS metrics (JSON, cached 5s) |
+  | GET    | /api/v1/slo     | Component SLO status (JSON)             |
+
+  SLO Response (example):
+  {
+    "window_hours": 24,
+    "components": {
+      "ingestor": {
+        "target": 0.995,
+        "availability": 0.999,
+        "error_budget_remaining": 0.8,
+        "burn_rate": 0.2,
+        "state": "ok",
+        "window_hours": 24
+      }
+    }
+  }
 
   Response:
   {
@@ -605,7 +651,7 @@
     --max-requests-jitter 1000 \
     --access-logfile - \
     --error-logfile - \
-    'ingestor_service:create_app()'
+    'services.ingestor_service:create_app()'
 
   Web UI:
   gunicorn \
@@ -613,11 +659,11 @@
     --workers 4 \
     --timeout 30 \
     --graceful-timeout 10 \
-    'web_ui_service:create_app()'
+    'services.web_ui_service:create_app()'
 
   Alerter & Moog Forwarder (worker services - run directly):
-  python alerter_service.py
-  python moog_forwarder_service.py
+  python services/alerter_service.py
+  python services/moog_forwarder_service.py
 
   Kubernetes Deployment
 
@@ -707,7 +753,7 @@
 
   Ingestor Service (:8080/metrics)
 
-  - mutt_ingest_requests_total{status} - Total ingestion requests
+  - mutt_ingest_requests_total{status,reason} - Total ingestion requests (status: success|fail; reason for failures)
   - mutt_ingest_queue_depth - Current queue depth
   - mutt_ingest_latency_seconds - Request processing latency
 
@@ -715,6 +761,8 @@
 
   - mutt_alerter_events_processed_total{status} - Events by status (handled/unhandled/poison/error)
   - mutt_alerter_processing_latency_seconds - Event processing time
+  - mutt_alerter_queue_depth - Monitored queue depth (alert queue)
+  - mutt_alerter_shed_events_total{mode} - Shed/deferral events
   - mutt_alerter_cache_rules_count - Rules in memory cache
   - mutt_alerter_cache_dev_hosts_count - Dev hosts in cache
   - mutt_alerter_cache_teams_count - Team mappings in cache
@@ -725,7 +773,7 @@
 
   Moog Forwarder Service (:8083/metrics)
 
-  - mutt_moog_requests_total{status} - Moog webhook requests (success/fail_*)
+  - mutt_moog_requests_total{status,reason} - Moog webhook requests (status: success|fail; reason for failures)
   - mutt_moog_request_latency_seconds - Webhook request latency
   - mutt_moog_dlq_depth - Moog DLQ depth
   - mutt_moog_processing_list_depth - This worker's processing list depth
@@ -738,6 +786,21 @@
   - mutt_webui_api_latency_seconds{endpoint} - API latency
   - mutt_webui_redis_scan_latency_seconds - Redis SCAN latency
   - mutt_webui_db_query_latency_ms{operation} - DB query latency
+
+  SLOs
+
+  - Web UI exposes component SLOs at `GET /api/v1/slo` using Prometheus queries and dynamic targets.
+  - Example Prometheus expressions (24h window):
+
+    Ingestor availability
+    sum(rate(mutt_ingest_requests_total{status="success"}[24h]))
+      /
+    sum(rate(mutt_ingest_requests_total[24h]))
+
+    Forwarder availability
+    sum(rate(mutt_moog_requests_total{status="success"}[24h]))
+      /
+    sum(rate(mutt_moog_requests_total[24h]))
 
   Grafana Dashboard
 
@@ -781,10 +844,10 @@
   Project Structure
 
   mutt/
-  ├── ingestor_service.py           # HTTP ingestion endpoint (v2.3)
-  ├── alerter_service.py            # Core event processor (v2.3)
-  ├── moog_forwarder_service.py     # Moogsoft integration (v2.3)
-  ├── web_ui_service.py             # Management UI + API (v2.3)
+  ├── services/ingestor_service.py  # HTTP ingestion endpoint (v2.3)
+  ├── services/alerter_service.py   # Core event processor (v2.3)
+  ├── services/moog_forwarder_service.py # Moogsoft integration (v2.3)
+  ├── services/web_ui_service.py    # Management UI + API (v2.3)
   ├── sql/
   │   └── mutt_schema_v2.1.sql      # Database schema
   ├── config/
@@ -892,7 +955,7 @@
 
   # Manually trigger janitor (restart service)
   kill -TERM $(pgrep -f alerter_service)
-  python alerter_service.py
+  python services/alerter_service.py
 
   Issue: High DLQ depth
   # View messages in DLQ
@@ -963,3 +1026,76 @@
   Built with ❤️ by the MUTT Team | Version 2.3
 
   ---
+## Observability
+
+See `docs/observability.md` for OpenTelemetry configuration: running without a backend, disabling OTEL, console exporters, and enabling via a Collector or backend.
+
+## What’s New in v2.5
+
+- Dynamic config APIs (view/update at runtime) and history
+- Zero‑downtime secret rotation (dual‑password connectors)
+- Operator docs: rotation runbook and upgrade guide
+- Test hardening and improved reliability around Redis/Postgres connections
+
+More details:
+- Current plan: `CURRENT_PLAN.md`
+- Phase 3 handoff (canonical): `docs/PHASE_3_HANDOFF_TO_ARCHITECT.md`
+- Alerter backpressure guide: `docs/ALERTER_BACKPRESSURE.md`
+- SLOs guide and API: `docs/SLOs.md`
+- Architect status & review protocol: `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
+- Dynamic Config Cheat‑Sheet: `docs/DYNAMIC_CONFIG_CHEATSHEET.md`
+- ADRs: `docs/adr/README.md`
+- Architecture Decision Records: See `docs/adr/README.md` for key design choices.
+- Feature matrix: `docs/FEATURE_MATRIX.md`
+- Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
+
+## API Docs
+
+- Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
+
+## Runbook
+
+- On‑Call Runbook: `docs/ONCALL_RUNBOOK.md`
+
+## Dashboards & Alerts
+
+- Grafana dashboard JSON: `docs/grafana/mutt-dashboard-v25.json`
+  - Import via Grafana → Dashboards → Import → Upload JSON.
+- Grafana provisioning (example):
+  - Dashboards provider: `docs/grafana/provisioning/dashboards.yml`
+  - Prometheus datasource: `docs/grafana/provisioning/datasources.yml`
+  - Mount `docs/grafana` into Grafana container (e.g., `/var/lib/grafana/dashboards`).
+- Prometheus alert rules: `docs/prometheus/alerts-v25.yml`
+  - Load into your Prometheus/Alertmanager stack; adjust thresholds to your environment.
+- Alertmanager example routing: `docs/alertmanager/config-v25.yml`
+  - Replace email/webhook with your receivers and global SMTP/webhook config.
+
+## Developer CLI
+
+Use the lightweight helper for common dev tasks:
+
+```bash
+# Create .env from template (non-destructive by default)
+python scripts/muttdev.py setup
+
+# Show config (db/redis/retention)
+python scripts/muttdev.py config --section all
+
+# Suggested log commands for a service
+python scripts/muttdev.py logs --service webui --tail 200
+
+# Bring up services with docker-compose (optional list)
+python scripts/muttdev.py up webui
+
+# Run quick, targeted tests (Phase 3/4 areas)
+python scripts/muttdev.py test --quick
+
+# Run full test suite or filter via -k
+python scripts/muttdev.py test
+python scripts/muttdev.py test -k retention
+ 
+# Format, lint, and type-check
+python scripts/muttdev.py fmt
+python scripts/muttdev.py lint
+python scripts/muttdev.py type
+```

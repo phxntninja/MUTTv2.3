@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-alerter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mutt-alerter
+  template:
+    metadata:
+      labels:
+        app: mutt-alerter
+    spec:
+      containers:
+        - name: alerter
+          image: mutt-alerter:2.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: mutt-config
+            - secretRef:
+                name: mutt-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-alerter
+spec:
+  selector:
+    app: mutt-alerter
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

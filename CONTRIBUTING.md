@@ -87,8 +87,8 @@ pytest tests/ -v
 
 3. **Test your changes**:
    ```bash
-   # Run all tests
-   pytest tests/ -v
+   # Fast unit tests (recommended for quick cycles)
+   python scripts/muttdev.py test --quick
 
    # Run with coverage
    pytest tests/ --cov=services --cov-report=term-missing
@@ -108,6 +108,28 @@ pytest tests/ -v
    ```
 
 6. **Create a Pull Request** on GitHub
+
+---
+
+## Local Hygiene & CI
+
+Use the developer CLI for common tasks before pushing:
+
+```bash
+# Format, lint, type-check
+python scripts/muttdev.py fmt
+python scripts/muttdev.py lint
+python scripts/muttdev.py type
+
+# Quick unit tests
+python scripts/muttdev.py test --quick
+```
+
+GitHub Actions CI runs on PRs and pushes:
+- Ruff lint (services, scripts, tests)
+- Black check (line length 100)
+- MyPy type-check (services)
+- Fast unit tests subset
 
 ---
 
@@ -398,6 +420,23 @@ python services/web_ui_service.py
 ```
 
 ### Debugging
+
+---
+
+## Code Style and Type Checking (Phase 1)
+
+We use Black, Ruff, isort, and MyPy to keep code consistent and catch issues early.
+
+- Format: `black .`
+- Imports: `isort .`
+- Lint: `ruff check services/ tests/`
+- Types: `mypy services/ tests/`
+
+Recommended workflow:
+1. Install tools: `pip install black isort ruff mypy`
+2. Before committing: run the four commands above.
+3. CI runs these checks; Ruff and MyPy are initially non‑blocking while we add typings incrementally.
+
 
 ```bash
 # Enable debug logging

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(.venv310Scriptspython.exe -m pytest tests/test_logging_utils.py -v --tb=short)",
+      "Bash(venv310/Scripts/python.exe -m pytest tests/test_logging_utils.py -v --tb=short)",
+      "Bash(venv310/Scripts/python.exe -m pytest:*)",
+      "Bash(venv310/Scripts/python.exe:*)",
+      "Bash(findstr:*)",
+      "Bash(move test_alerter_backpressure_unit.py test_alerter_backpressure_unit.py.SKIP)",
+      "Bash(ren:*)",
+      "Bash(cat:*)",
+      "Bash(git checkout:*)",
+      "Bash(del temp_ci.yml)",
+      "Bash(dir:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPriority 4: Add ADR index link to main README\n\n- Added prominent link to docs/adr/README.md in Quickstart section\n- Improves discoverability of Architecture Decision Records\n- Provides context about ADR content (Redis vs Kafka, Vault, etc.)\n- Completes Phase 6 Priority 4: Documentation Polish\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

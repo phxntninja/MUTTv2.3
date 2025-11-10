@@ -48,4 +48,14 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO mutt_user;
 -- Reload configuration
 -- SELECT pg_reload_conf();
 
-\echo 'PostgreSQL initialization complete'
+-- =====================================================================
+-- Load Additional Schemas (v2.5+)
+-- =====================================================================
+
+-- Load config audit schema for compliance tracking (v2.5)
+\i /docker-entrypoint-initdb.d/config_audit_schema.sql
+
+-- Load partitioned event audit log extensions (v2.5)
+\i /docker-entrypoint-initdb.d/partitioned_event_audit_log.sql
+
+\echo 'PostgreSQL initialization complete (includes v2.5 audit & archival schemas)'

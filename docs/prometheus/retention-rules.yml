@@ -1,0 +1,236 @@
+# MUTT v2.5 - Data Retention Prometheus Rules
+#
+# Recording and alerting rules for data retention monitoring.
+#
+# Deploy to Prometheus:
+#   kubectl create configmap prometheus-retention-rules \
+#     --from-file=retention-rules.yml \
+#     -n monitoring
+#
+# Reference in Prometheus configuration:
+#   rule_files:
+#     - /etc/prometheus/rules/retention-rules.yml
+
+groups:
+- name: mutt_retention_recording
+  interval: 5m
+  rules:
+  # Total records deleted across all types
+  - record: mutt:retention:records_deleted:rate5m
+    expr: rate(mutt_retention_cleanup_records_deleted_total[5m])
+
+  # Records deleted by type
+  - record: mutt:retention:records_deleted_by_type:rate5m
+    expr: rate(mutt_retention_cleanup_records_deleted_total[5m])
+
+  # Total records deleted in last 24 hours
+  - record: mutt:retention:records_deleted:increase24h
+    expr: increase(mutt_retention_cleanup_records_deleted_total[24h])
+
+  # Time since last successful cleanup run
+  - record: mutt:retention:last_run:age_minutes
+    expr: (time() - mutt_retention_cleanup_last_run_timestamp_seconds) / 60
+
+  # Retention policy compliance ratio (days remaining vs configured)
+  # This helps identify if cleanup is running properly
+  - record: mutt:retention:compliance:ratio
+    expr: |
+      (mutt_retention_policy_days -
+       (time() - mutt_retention_cleanup_last_run_timestamp_seconds) / 86400)
+      / mutt_retention_policy_days
+
+- name: mutt_retention_alerts
+  interval: 1m
+  rules:
+  # Alert if retention cleanup hasn't run in 25 hours (should run daily)
+  - alert: RetentionCleanupStale
+    expr: mutt:retention:last_run:age_minutes > 1500  # 25 hours
+    for: 5m
+    labels:
+      severity: warning
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention cleanup has not run recently"
+      description: |
+        Retention cleanup last ran {{ $value | humanizeDuration }} ago.
+        Expected to run daily. Check CronJob status.
+
+        Runbook: Check `kubectl get cronjobs -n mutt` and
+        `kubectl logs -n mutt -l app=retention-cleanup --tail=100`
+
+  # Alert if retention cleanup is failing
+  - alert: RetentionCleanupFailing
+    expr: |
+      rate(kube_job_status_failed{job_name=~"retention-cleanup.*"}[15m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention cleanup job is failing"
+      description: |
+        Retention cleanup job has failed.
+        This may lead to compliance violations if data is not being purged.
+
+        Check logs: `kubectl logs -n mutt -l app=retention-cleanup --tail=100`
+
+  # Alert if data deletion rate is abnormally high
+  - alert: RetentionDeletionRateHigh
+    expr: mutt:retention:records_deleted:rate5m > 100
+    for: 10m
+    labels:
+      severity: warning
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention deletion rate is abnormally high"
+      description: |
+        Retention cleanup is deleting {{ $value | humanize }} records/sec.
+        This may indicate a configuration issue or data accumulation problem.
+
+        Check retention policies and recent data volume.
+
+  # Alert if no records are being deleted (cleanup may be broken)
+  - alert: RetentionNoDataDeleted
+    expr: |
+      increase(mutt_retention_cleanup_records_deleted_total[24h]) == 0
+      and
+      mutt:retention:last_run:age_minutes < 1500
+    for: 2d
+    labels:
+      severity: info
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention cleanup is not deleting any data"
+      description: |
+        No records have been deleted by retention cleanup in 24 hours,
+        but cleanup is running. This may be normal if there's no old data,
+        or it could indicate a configuration issue.
+
+        Check retention policies and data age in database.
+
+  # Alert if retention policy is approaching expiration
+  - alert: RetentionPolicyExpiring
+    expr: mutt:retention:compliance:ratio < 0.1  # Less than 10% buffer
+    for: 1h
+    labels:
+      severity: warning
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention policy is close to expiration"
+      description: |
+        Type {{ $labels.type }} has only {{ $value | humanizePercentage }}
+        of its retention period remaining before data should be deleted.
+
+        This may indicate retention cleanup is not running frequently enough.
+
+  # Alert for retention configuration issues
+  - alert: RetentionConfigurationInvalid
+    expr: mutt_retention_policy_days < 7
+    for: 5m
+    labels:
+      severity: critical
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention policy is configured too short"
+      description: |
+        Type {{ $labels.type }} is configured to retain data for only
+        {{ $value }} days, which is below the 7-day minimum.
+
+        Review retention configuration in ConfigMap/environment variables.
+
+  # Alert if cleanup job pod is pending for too long
+  - alert: RetentionCleanupPodPending
+    expr: |
+      kube_pod_status_phase{
+        pod=~"retention-cleanup.*",
+        phase="Pending"
+      } > 0
+    for: 10m
+    labels:
+      severity: warning
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention cleanup pod is stuck in Pending state"
+      description: |
+        Retention cleanup pod {{ $labels.pod }} has been Pending for 10+ minutes.
+        Check for resource constraints or scheduling issues.
+
+        Commands:
+        - `kubectl describe pod {{ $labels.pod }} -n mutt`
+        - `kubectl get nodes` (check node resources)
+
+  # Database connection issues
+  - alert: RetentionCleanupDatabaseError
+    expr: |
+      rate(mutt_retention_cleanup_errors_total{error_type="database"}[5m]) > 0
+    for: 2m
+    labels:
+      severity: critical
+      component: compliance
+      service: retention-cleanup
+    annotations:
+      summary: "Retention cleanup experiencing database errors"
+      description: |
+        Retention cleanup is encountering database errors at
+        {{ $value | humanize }} errors/sec.
+
+        Check database connectivity and credentials.
+
+- name: mutt_retention_capacity
+  interval: 5m
+  rules:
+  # Estimate days until database is full based on growth rate
+  # (This requires additional database size metrics)
+  - record: mutt:retention:database_full:days_estimate
+    expr: |
+      (
+        max(pg_database_size_bytes{datname="mutt"})
+        /
+        rate(pg_database_size_bytes{datname="mutt"}[7d])
+      ) / 86400
+    labels:
+      job: retention-capacity
+
+  # Data growth rate (MB/day)
+  - record: mutt:retention:data_growth:mb_per_day
+    expr: |
+      rate(pg_database_size_bytes{datname="mutt"}[7d]) * 86400 / 1024 / 1024
+
+  # Oldest record age by table (in days)
+  # Note: Requires custom exporter or query_exporter to populate
+  - record: mutt:retention:oldest_record:age_days
+    expr: |
+      (time() - mutt_table_oldest_record_timestamp_seconds) / 86400
+
+- name: mutt_retention_compliance_dashboard
+  interval: 30s
+  rules:
+  # Summary metrics for Grafana dashboard
+
+  # Total data volume by retention type
+  - record: mutt:retention:data_volume:bytes
+    expr: |
+      sum by (type) (
+        mutt_table_size_bytes{table=~"config_audit_log|event_audit_log"}
+      )
+
+  # Deletion efficiency (% of old data removed vs expected)
+  - record: mutt:retention:efficiency:percent
+    expr: |
+      (
+        mutt:retention:records_deleted:increase24h
+        /
+        (mutt:retention:oldest_record:age_days > mutt_retention_policy_days)
+      ) * 100
+
+  # Next scheduled cleanup time (based on CronJob schedule)
+  - record: mutt:retention:next_cleanup:timestamp
+    expr: |
+      kube_cronjob_next_schedule_time{cronjob="retention-cleanup"}

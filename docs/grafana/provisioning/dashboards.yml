@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: 'mutt-v25-dashboards'
+    orgId: 1
+    folder: 'MUTT'
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      # Point this path at the folder where you mount the JSON file(s)
+      # Example: mount repo's docs/grafana into /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards
+

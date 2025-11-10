@@ -9,7 +9,7 @@ Flask==2.3.3
 gunicorn==21.2.0
 
 # Database
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 
 # Redis
 redis==5.0.1
@@ -25,6 +25,21 @@ prometheus-client==0.18.0
 prometheus-flask-exporter==0.23.0
 
 # =====================================================================
+# Observability (Phase 2 - Optional)
+# =====================================================================
+# OpenTelemetry tracing (opt-in via OTEL_ENABLED=true)
+# These are optional - services work without them installed
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp-proto-grpc>=1.24.0
+
+# Auto-instrumentation libraries (optional)
+opentelemetry-instrumentation-flask>=0.45b0
+opentelemetry-instrumentation-requests>=0.45b0
+opentelemetry-instrumentation-redis>=0.45b0
+opentelemetry-instrumentation-psycopg2>=0.45b0
+
+# =====================================================================
 # Version Notes:
 # =====================================================================
 # - Flask 2.3.3: Stable, production-ready
@@ -33,4 +48,5 @@ prometheus-flask-exporter==0.23.0
 # - hvac 2.0.0: Vault client with token renewal support
 # - prometheus-client: Core metrics library
 # - prometheus-flask-exporter: Flask integration for metrics
+# - opentelemetry-*: Python 3.10+ compatible, opt-in distributed tracing
 # =====================================================================
