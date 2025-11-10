@@ -396,6 +396,8 @@
               }), 401
 
       @app.route('/ingest', methods=['POST'])
+      @app.route('/api/v1/ingest', methods=['POST'])
+      @app.route('/api/v2/ingest', methods=['POST'])
       @METRIC_LATENCY.time()
       def handle_ingest():
           """
@@ -590,6 +592,15 @@
                   "info": "GET /"
               }
           }), 200
+
+      @app.after_request
+      def add_version_headers(resp):
+          try:
+              resp.headers['X-API-Version'] = 'v2.5'
+              resp.headers['X-API-Deprecated'] = 'true' if request.path.startswith('/api/v1/') else 'false'
+          except Exception:
+              pass
+          return resp
 
       return app
 

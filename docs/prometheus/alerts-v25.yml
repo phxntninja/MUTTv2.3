@@ -44,3 +44,47 @@ groups:
         annotations:
           summary: "Ingestor service down"
 
+  - name: mutt-core
+    rules:
+      - alert: MUTTIngestQueueNearCapacity
+        expr: mutt_ingest_queue_depth > 900000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MUTT ingest queue near capacity"
+          description: |
+            Ingest queue depth is above 900k for 5 minutes. Verify downstream processing
+            (alerter/forwarder), backpressure, and Redis health.
+
+      - alert: MUTTAlerterDown
+        expr: up{job="mutt-alerter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MUTT Alerter service is down"
+          description: |
+            No targets for job=mutt-alerter are up. Check pods/instance logs and health endpoint.
+
+      - alert: MUTTMoogForwardFailures
+        expr: sum(rate(mutt_moog_requests_total{status=~"fail_.*"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Moog forward failure rate"
+          description: |
+            Moog webhook requests are failing (>0.1 req/s over 5m). Inspect network, Moog availability,
+            TLS, and credentials. Rate-limiting may also trigger retries.
+
+      - alert: MUTTMoogCircuitOpen
+        expr: mutt_moog_circuit_open == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Moog circuit breaker is OPEN"
+          description: |
+            The circuit breaker for Moog forwarder has been open for >2m. Investigate Moog health,
+            network connectivity, and recent error spikes.

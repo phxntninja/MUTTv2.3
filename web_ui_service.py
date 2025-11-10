@@ -51,6 +51,11 @@
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
+  try:
+      from services.api_versioning import CURRENT_API_VERSION as API_VER, SUPPORTED_VERSIONS as API_SUPPORTED
+  except Exception:
+      API_VER = '2.5'
+      API_SUPPORTED = ['2.5', '2.0', '1.0']
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -463,6 +468,13 @@
                   f"Status: {response.status_code} - "
                   f"Duration: {duration:.3f}s"
               )
+          # Add API version headers
+          try:
+              response.headers['X-API-Version'] = f"v{API_VER}"
+              response.headers['X-API-Deprecated'] = 'true' if request.path.startswith('/api/v1/') else 'false'
+              response.headers['X-API-Supported-Versions'] = ', '.join([f"v{v}" for v in API_SUPPORTED])
+          except Exception:
+              pass
           return response
 
       # ================================================================
@@ -520,6 +532,7 @@
       # ================================================================
 
       @app.route('/api/v1/metrics', methods=['GET'])
+      @app.route('/api/v2/metrics', methods=['GET'])
       @require_api_key
       def get_api_metrics():
           """
@@ -605,7 +618,36 @@
       # ALERT RULES CRUD API
       # ================================================================
 
+      def _masked_api_identity():
+          api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or ''
+          if api_key:
+              return f"api_key:***{api_key[-4:]}"
+          return 'webui_api'
+
+      def _write_config_audit(conn, *, operation, record_id, old_values, new_values, reason=None):
+          changed_by = request.headers.get('X-User') or _masked_api_identity()
+          correlation_id = getattr(request, 'correlation_id', None)
+          with conn.cursor() as c:
+              c.execute(
+                  """
+                  INSERT INTO config_audit_log
+                  (changed_by, operation, table_name, record_id, old_values, new_values, reason, correlation_id)
+                  VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
+                  """,
+                  (
+                      changed_by,
+                      operation,
+                      'alert_rules',
+                      record_id,
+                      json.dumps(old_values) if old_values is not None else None,
+                      json.dumps(new_values) if new_values is not None else None,
+                      reason,
+                      correlation_id,
+                  )
+              )
+
       @app.route('/api/v1/rules', methods=['GET'])
+      @app.route('/api/v2/rules', methods=['GET'])
       @require_api_key
       def get_rules():
           """Get all alert rules."""
@@ -634,11 +676,97 @@
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='rules', status='error').inc()
                   return jsonify({"error": str(e)}), 500
 
-              finally:
-                  if conn:
-                      db_pool.putconn(conn)
+      finally:
+          if conn:
+              db_pool.putconn(conn)
+
+      # ================================================================
+      # CONFIG AUDIT API
+      # ================================================================
+
+      @app.route('/api/v1/config-audit', methods=['GET'])
+      @app.route('/api/v2/config-audit', methods=['GET'])
+      @require_api_key
+      def get_config_audit():
+          """List configuration change audit records with filters and pagination."""
+          db_pool = app.config['DB_POOL']
+          conn = None
+
+          try:
+              page = max(1, int(request.args.get('page', 1)))
+              limit = min(200, max(1, int(request.args.get('limit', 50))))
+              offset = (page - 1) * limit
+
+              changed_by = request.args.get('changed_by')
+              table_name = request.args.get('table_name')
+              record_id = request.args.get('record_id')
+              operation = request.args.get('operation')  # CREATE/UPDATE/DELETE
+              start_date = request.args.get('start_date')
+              end_date = request.args.get('end_date')
+
+              where_clauses = []
+              params = []
+
+              if changed_by:
+                  where_clauses.append("changed_by = %s")
+                  params.append(changed_by)
+              if table_name:
+                  where_clauses.append("table_name = %s")
+                  params.append(table_name)
+              if record_id:
+                  where_clauses.append("record_id = %s")
+                  params.append(int(record_id))
+              if operation:
+                  where_clauses.append("operation = %s")
+                  params.append(operation.upper())
+              if start_date:
+                  where_clauses.append("changed_at >= %s")
+                  params.append(start_date)
+              if end_date:
+                  where_clauses.append("changed_at <= %s")
+                  params.append(end_date)
+
+              where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+              conn = db_pool.getconn()
+
+              with conn.cursor() as cursor:
+                  count_query = f"SELECT COUNT(*) FROM config_audit_log {where_sql}"
+                  cursor.execute(count_query, params)
+                  total = cursor.fetchone()[0]
+
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                  data_query = f"""
+                      SELECT id, changed_at, changed_by, operation, table_name, record_id,
+                             reason, correlation_id
+                      FROM config_audit_log
+                      {where_sql}
+                      ORDER BY changed_at DESC
+                      LIMIT %s OFFSET %s
+                  """
+                  cursor.execute(data_query, params + [limit, offset])
+                  rows = cursor.fetchall()
+
+              return jsonify({
+                  "changes": rows,
+                  "pagination": {
+                      "page": page,
+                      "limit": limit,
+                      "total": total,
+                      "pages": (total + limit - 1) // limit
+                  }
+              })
+
+          except Exception as e:
+              logger.error(f"Error fetching config audit logs: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+          finally:
+              if conn:
+                  db_pool.putconn(conn)
 
       @app.route('/api/v1/rules/<int:rule_id>', methods=['GET'])
+      @app.route('/api/v2/rules/<int:rule_id>', methods=['GET'])
       @require_api_key
       def get_rule(rule_id):
           """Get a specific alert rule."""
@@ -666,6 +794,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/rules', methods=['POST'])
+      @app.route('/api/v2/rules', methods=['POST'])
       @require_api_key
       def create_rule():
           """Create a new alert rule."""
@@ -710,6 +839,23 @@
                   )
                   new_id = cursor.fetchone()[0]
 
+              # Fetch new values for audit
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c2:
+                  c2.execute("SELECT * FROM alert_rules WHERE id=%s", (new_id,))
+                  new_row = c2.fetchone()
+
+              # Optional human reason from payload
+              reason = (data or {}).get('reason')
+
+              _write_config_audit(
+                  conn,
+                  operation='CREATE',
+                  record_id=new_id,
+                  old_values=None,
+                  new_values=new_row,
+                  reason=reason,
+              )
+
               conn.commit()
 
               logger.info(f"Created new rule with ID {new_id}")
@@ -726,6 +872,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/rules/<int:rule_id>', methods=['PUT'])
+      @app.route('/api/v2/rules/<int:rule_id>', methods=['PUT'])
       @require_api_key
       def update_rule(rule_id):
           """Update an existing alert rule."""
@@ -735,6 +882,13 @@
           try:
               data = request.get_json()
               conn = db_pool.getconn()
+
+              # Get old values for audit
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c0:
+                  c0.execute("SELECT * FROM alert_rules WHERE id=%s", (rule_id,))
+                  old_row = c0.fetchone()
+              if not old_row:
+                  return jsonify({"error": "Rule not found"}), 404
 
               # Build dynamic UPDATE query
               update_fields = []
@@ -754,9 +908,23 @@
               with conn.cursor() as cursor:
                   query = f"UPDATE alert_rules SET {', '.join(update_fields)} WHERE id = %s"
                   cursor.execute(query, values)
+                  # cursor.rowcount is >0 because we verified existence
 
-                  if cursor.rowcount == 0:
-                      return jsonify({"error": "Rule not found"}), 404
+              # Fetch new values
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c1:
+                  c1.execute("SELECT * FROM alert_rules WHERE id=%s", (rule_id,))
+                  new_row = c1.fetchone()
+
+              reason = (data or {}).get('reason')
+
+              _write_config_audit(
+                  conn,
+                  operation='UPDATE',
+                  record_id=rule_id,
+                  old_values=old_row,
+                  new_values=new_row,
+                  reason=reason,
+              )
 
               conn.commit()
 
@@ -774,6 +942,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/rules/<int:rule_id>', methods=['DELETE'])
+      @app.route('/api/v2/rules/<int:rule_id>', methods=['DELETE'])
       @require_api_key
       def delete_rule(rule_id):
           """Delete an alert rule."""
@@ -783,11 +952,26 @@
           try:
               conn = db_pool.getconn()
 
+              # Fetch old values first
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c0:
+                  c0.execute("SELECT * FROM alert_rules WHERE id=%s", (rule_id,))
+                  old_row = c0.fetchone()
+              if not old_row:
+                  return jsonify({"error": "Rule not found"}), 404
+
+              # Delete the rule
               with conn.cursor() as cursor:
                   cursor.execute("DELETE FROM alert_rules WHERE id = %s", (rule_id,))
 
-                  if cursor.rowcount == 0:
-                      return jsonify({"error": "Rule not found"}), 404
+              # Audit (DELETE has no new_values)
+              _write_config_audit(
+                  conn,
+                  operation='DELETE',
+                  record_id=rule_id,
+                  old_values=old_row,
+                  new_values=None,
+                  reason=None,
+              )
 
               conn.commit()
 
@@ -809,6 +993,7 @@
       # ================================================================
 
       @app.route('/api/v1/audit-logs', methods=['GET'])
+      @app.route('/api/v2/audit-logs', methods=['GET'])
       @require_api_key
       def get_audit_logs():
           """
@@ -900,6 +1085,7 @@
       # ================================================================
 
       @app.route('/api/v1/dev-hosts', methods=['GET'])
+      @app.route('/api/v2/dev-hosts', methods=['GET'])
       @require_api_key
       def get_dev_hosts():
           """Get all development hosts."""
@@ -924,6 +1110,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/dev-hosts', methods=['POST'])
+      @app.route('/api/v2/dev-hosts', methods=['POST'])
       @require_api_key
       def add_dev_host():
           """Add a development host."""
@@ -966,6 +1153,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/dev-hosts/<hostname>', methods=['DELETE'])
+      @app.route('/api/v2/dev-hosts/<hostname>', methods=['DELETE'])
       @require_api_key
       def delete_dev_host(hostname):
           """Delete a development host."""
@@ -1001,6 +1189,7 @@
       # ================================================================
 
       @app.route('/api/v1/teams', methods=['GET'])
+      @app.route('/api/v2/teams', methods=['GET'])
       @require_api_key
       def get_teams():
           """Get all device team mappings."""
@@ -1025,6 +1214,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/teams', methods=['POST'])
+      @app.route('/api/v2/teams', methods=['POST'])
       @require_api_key
       def add_team_mapping():
           """Add a device team mapping."""
@@ -1068,6 +1258,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/teams/<hostname>', methods=['PUT'])
+      @app.route('/api/v2/teams/<hostname>', methods=['PUT'])
       @require_api_key
       def update_team_mapping(hostname):
           """Update a device team mapping."""
@@ -1108,6 +1299,7 @@
                   db_pool.putconn(conn)
 
       @app.route('/api/v1/teams/<hostname>', methods=['DELETE'])
+      @app.route('/api/v2/teams/<hostname>', methods=['DELETE'])
       @require_api_key
       def delete_team_mapping(hostname):
           """Delete a device team mapping."""
@@ -1268,6 +1460,17 @@
               box-shadow: 0 4px 12px rgba(0,0,0,0.2);
           }
 
+          .notice {
+              max-width: 1200px;
+              margin: 10px auto 20px auto;
+              padding: 12px 16px;
+              background: rgba(0, 188, 212, 0.08);
+              border-left: 4px solid var(--accent-color);
+              color: var(--text-color);
+              font-size: 13px;
+              opacity: 0.9;
+          }
+
           .footer {
               text-align: center;
               margin-top: 30px;
@@ -1303,6 +1506,29 @@
           <canvas id="hourlyChart"></canvas>
       </div>
 
+      <div class="notice">
+          <strong>API Versioning:</strong> Dashboard uses <code>/api/v2/metrics</code>. All Web UI
+          endpoints have v2 aliases; v1 is maintained for compatibility and returns
+          <code>X-API-Deprecated: true</code>. See <code>docs/API_VERSIONING.md</code> for details.
+      </div>
+
+      <div class="chart-container" style="padding: 16px;">
+          <h3 style="margin-top:0;color:#f0f0f0;opacity:0.9;">Recent Config Changes</h3>
+          <table id="configAuditTable" style="width:100%;border-collapse:collapse;color:#f0f0f0;">
+              <thead>
+                  <tr style="text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">
+                      <th style="padding:6px 8px;">Time (UTC)</th>
+                      <th style="padding:6px 8px;">User</th>
+                      <th style="padding:6px 8px;">Op</th>
+                      <th style="padding:6px 8px;">Table</th>
+                      <th style="padding:6px 8px;">Record</th>
+                      <th style="padding:6px 8px;">Reason</th>
+                  </tr>
+              </thead>
+              <tbody></tbody>
+          </table>
+      </div>
+
       <div class="footer">
           MUTT v2.3 | Refreshes every 10 seconds
       </div>
@@ -1316,7 +1542,7 @@
                   const urlParams = new URLSearchParams(window.location.search);
                   const apiKey = urlParams.get('api_key');
 
-                  const response = await fetch(`/api/v1/metrics?api_key=${apiKey}`);
+                  const response = await fetch(`/api/v2/metrics?api_key=${apiKey}`);
 
                   if (!response.ok) {
                       throw new Error(`HTTP error! status: ${response.status}`);
@@ -1352,6 +1578,36 @@
                       elem.textContent = "Error";
                       elem.classList.add('error');
                   });
+              }
+          }
+
+          async function updateConfigAudit() {
+              try {
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const apiKey = urlParams.get('api_key');
+                  const resp = await fetch(`/api/v2/config-audit?limit=10`, {
+                      headers: { 'X-API-KEY': apiKey || '' }
+                  });
+                  if (!resp.ok) return;
+                  const data = await resp.json();
+                  const rows = data.changes || [];
+                  const tbody = document.querySelector('#configAuditTable tbody');
+                  tbody.innerHTML = '';
+                  rows.forEach(r => {
+                      const tr = document.createElement('tr');
+                      tr.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
+                      tr.innerHTML = `
+                          <td style="padding:6px 8px;">${new Date(r.changed_at).toISOString().replace('T',' ').slice(0,19)}</td>
+                          <td style="padding:6px 8px;">${r.changed_by || ''}</td>
+                          <td style="padding:6px 8px;">${r.operation}</td>
+                          <td style="padding:6px 8px;">${r.table_name}</td>
+                          <td style="padding:6px 8px;">${r.record_id}</td>
+                          <td style="padding:6px 8px;">${(r.reason || '').slice(0,80)}</td>
+                      `;
+                      tbody.appendChild(tr);
+                  });
+              } catch (e) {
+                  // ignore errors in audit panel
               }
           }
 
@@ -1403,6 +1659,8 @@
           document.addEventListener('DOMContentLoaded', () => {
               updateMetrics();
               setInterval(updateMetrics, 10000); // Refresh every 10s
+              updateConfigAudit();
+              setInterval(updateConfigAudit, 30000);
           });
       </script>
   </body>

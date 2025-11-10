@@ -82,6 +82,20 @@
       ['status']  # success, dlq, error
   )
 
+  # Circuit breaker metrics
+  METRIC_MOOG_CIRCUIT_OPEN = Gauge(
+      'mutt_moog_circuit_open',
+      'Circuit breaker state for Moog forwarder (1=open, 0=closed)'
+  )
+  METRIC_MOOG_CIRCUIT_TRIPS = Counter(
+      'mutt_moog_circuit_trips_total',
+      'Total number of times the circuit breaker opened'
+  )
+  METRIC_MOOG_CIRCUIT_BLOCKED = Counter(
+      'mutt_moog_circuit_blocked_total',
+      'Number of alerts blocked by open circuit breaker'
+  )
+
   # =====================================================================
   # LOGGING SETUP
   # =====================================================================
@@ -190,6 +204,11 @@
               self.MOOG_MAX_RETRIES = int(os.environ.get('MOOG_MAX_RETRIES', 5))
               self.MOOG_RETRY_BASE_DELAY = float(os.environ.get('MOOG_RETRY_BASE_DELAY', 1.0))  # 1 second
               self.MOOG_RETRY_MAX_DELAY = float(os.environ.get('MOOG_RETRY_MAX_DELAY', 60.0))  # 60 seconds
+
+              # Circuit Breaker Config
+              self.MOOG_CB_FAILURE_THRESHOLD = int(os.environ.get('MOOG_CB_FAILURE_THRESHOLD', 5))
+              self.MOOG_CB_OPEN_SECONDS = int(os.environ.get('MOOG_CB_OPEN_SECONDS', 60))
+              self.MOOG_CB_KEY_PREFIX = os.environ.get('MOOG_CB_KEY_PREFIX', 'mutt:circuit:moog')
 
               # Vault Config
               self.VAULT_ADDR = os.environ.get('VAULT_ADDR')
@@ -471,7 +490,45 @@
       except Exception as e:
           logger.error(f"Error checking rate limit: {e}")
           # On error, allow the request (fail open)
-          return True
+      return True
+
+  # =====================================================================
+  # CIRCUIT BREAKER (Redis-backed)
+  # =====================================================================
+
+  def _cb_open_key(config):
+      return f"{config.MOOG_CB_KEY_PREFIX}:open"
+
+  def _cb_failures_key(config):
+      return f"{config.MOOG_CB_KEY_PREFIX}:failures"
+
+  def is_circuit_open(redis_client, config):
+      try:
+          open_ = bool(redis_client.exists(_cb_open_key(config)))
+          METRIC_MOOG_CIRCUIT_OPEN.set(1 if open_ else 0)
+          return open_
+      except Exception:
+          # Fail closed if Redis unavailable for CB state
+          return False
+
+  def record_cb_failure(redis_client, config):
+      try:
+          failures = redis_client.incr(_cb_failures_key(config))
+          if failures >= config.MOOG_CB_FAILURE_THRESHOLD:
+              redis_client.setex(_cb_open_key(config), config.MOOG_CB_OPEN_SECONDS, '1')
+              redis_client.delete(_cb_failures_key(config))
+              METRIC_MOOG_CIRCUIT_TRIPS.inc()
+              METRIC_MOOG_CIRCUIT_OPEN.set(1)
+      except Exception:
+          pass
+
+  def record_cb_success(redis_client, config):
+      try:
+          redis_client.delete(_cb_failures_key(config))
+          redis_client.delete(_cb_open_key(config))
+          METRIC_MOOG_CIRCUIT_OPEN.set(0)
+      except Exception:
+          pass
 
   # =====================================================================
   # MOOG WEBHOOK
@@ -627,6 +684,16 @@
 
           return None  # Done with this message
 
+      # --- Check circuit breaker ---
+      if is_circuit_open(redis_client, config):
+          logger.warning("Moog circuit breaker OPEN. Deferring alert and re-queuing.")
+          METRIC_MOOG_CIRCUIT_BLOCKED.inc()
+          # Add small sleep to avoid tight loop churn
+          time.sleep(min(config.MOOG_RETRY_BASE_DELAY, 1.0))
+          # Re-queue for later processing
+          redis_client.lpush(config.ALERT_QUEUE_NAME, alert_string)
+          return None
+
       # --- Check rate limit ---
       if not check_rate_limit(redis_client, config):
           logger.debug(f"Rate limit hit. Returning alert to queue for retry.")
@@ -640,6 +707,8 @@
       if success:
           # Success! Remove from processing list
           METRIC_ALERTS_PROCESSED_TOTAL.labels(status='success').inc()
+          # Reset circuit breaker on success
+          record_cb_success(redis_client, config)
           return alert_string
 
       else:
@@ -667,6 +736,8 @@
               redis_client.lpush(config.ALERT_QUEUE_NAME, new_alert_string)
 
               METRIC_ALERTS_PROCESSED_TOTAL.labels(status='error').inc()
+              # Count towards circuit breaker failure threshold
+              record_cb_failure(redis_client, config)
               return None  # Remove from processing list
 
           else:
@@ -701,12 +772,16 @@
 
                   self.send_response(status_code)
                   self.send_header('Content-Type', 'application/json')
+                  self.send_header('X-API-Version', 'v2.5')
+                  self.send_header('X-API-Supported-Versions', 'v2.5, v2.0, v1.0')
                   self.end_headers()
                   self.wfile.write(json.dumps(response).encode())
 
               except Exception as e:
                   self.send_response(503)
                   self.send_header('Content-Type', 'application/json')
+                  self.send_header('X-API-Version', 'v2.5')
+                  self.send_header('X-API-Supported-Versions', 'v2.5, v2.0, v1.0')
                   self.end_headers()
                   self.wfile.write(json.dumps({
                       "status": "unhealthy",
@@ -821,6 +896,11 @@
       config = Config()
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
+      # Initialize circuit breaker gauge from current state
+      try:
+          _ = is_circuit_open(redis_client, config)
+      except Exception:
+          pass
 
       # --- 2. Start Background Services ---
       stop_event = threading.Event()

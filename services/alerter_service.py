@@ -1127,12 +1127,16 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
                 self.send_response(status_code)
                 self.send_header('Content-Type', 'application/json')
+                self.send_header('X-API-Version', 'v2.5')
+                self.send_header('X-API-Supported-Versions', 'v2.5, v2.0, v1.0')
                 self.end_headers()
                 self.wfile.write(json.dumps(response).encode())
 
             except Exception as e:
                 self.send_response(503)
                 self.send_header('Content-Type', 'application/json')
+                self.send_header('X-API-Version', 'v2.5')
+                self.send_header('X-API-Supported-Versions', 'v2.5, v2.0, v1.0')
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "status": "unhealthy",

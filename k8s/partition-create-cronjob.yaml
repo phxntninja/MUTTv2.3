@@ -1,0 +1,75 @@
+---
+# MUTT v2.5 - Monthly Partition Creation CronJob
+#
+# Creates future partitions for event_audit_log to avoid on-demand partition
+# creation overhead. Default: run on the 1st of each month at 01:10.
+#
+# Usage:
+#   kubectl apply -f k8s/partition-create-cronjob.yaml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: partition-create
+  namespace: mutt
+  labels:
+    app: partition-create
+    component: compliance
+    version: v2.5
+spec:
+  # At 01:10 on day-of-month 1
+  schedule: "10 1 1 * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: mutt-retention-sa
+          containers:
+          - name: partition-create
+            image: mutt/retention:v2.5
+            imagePullPolicy: IfNotPresent
+            command: ["python3", "/app/scripts/create_monthly_partitions.py"]
+            env:
+            # How many months ahead to precreate
+            - name: RETENTION_PRECREATE_MONTHS
+              value: "3"
+            # DB connection
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_host
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_port
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_name
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mutt-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mutt-db-secret
+                  key: password
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi

@@ -1052,6 +1052,7 @@ More details:
 ## API Docs
 
 - Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
+- API Versioning overview: `docs/API_VERSIONING.md`
 
 ## Runbook
 
@@ -1098,4 +1099,18 @@ python scripts/muttdev.py test -k retention
 python scripts/muttdev.py fmt
 python scripts/muttdev.py lint
 python scripts/muttdev.py type
+
+## API Versioning
+
+- Current API version: v2.5 (responses include version headers across services).
+- Backward-compatible v2 aliases exist for all Web UI endpoints alongside `/api/v1/*` paths.
+- Response headers:
+  - `X-API-Version`: current service API version
+  - `X-API-Deprecated`: `true` on `/api/v1/*` routes (v1 maintained for compatibility)
+- Example v2 endpoints (Web UI):
+  - `GET /api/v2/metrics`
+  - `GET /api/v2/rules`, `POST /api/v2/rules`, `PUT /api/v2/rules/{id}`, `DELETE /api/v2/rules/{id}`
+  - `GET /api/v2/audit-logs`
+  - `GET/POST/DELETE /api/v2/dev-hosts[/{hostname}]`
+  - `GET/POST/PUT/DELETE /api/v2/teams[/{hostname}]`
 ```

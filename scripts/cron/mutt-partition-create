@@ -1,0 +1,19 @@
+#!/bin/sh
+# MUTT v2.5 - Example cron for monthly partition creation
+#
+# Copy to /etc/cron.monthly/mutt-partition-create and make executable:
+#   sudo cp scripts/cron/mutt-partition-create /etc/cron.monthly/
+#   sudo chmod +x /etc/cron.monthly/mutt-partition-create
+#
+# Requires environment variables for DB connection or defaults are used.
+
+# Precreate partitions 3 months ahead by default
+: "${RETENTION_PRECREATE_MONTHS:=3}"
+
+# Activate venv if applicable
+if [ -f "/opt/mutt/venv/bin/activate" ]; then
+  . /opt/mutt/venv/bin/activate
+fi
+
+# Run partition creator
+python3 /opt/mutt/scripts/create_monthly_partitions.py --months "${RETENTION_PRECREATE_MONTHS}"

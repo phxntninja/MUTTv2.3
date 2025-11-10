@@ -284,8 +284,8 @@ Examples:
     parser.add_argument(
         '--months',
         type=int,
-        default=3,
-        help='Number of months ahead to create partitions (default: 3)'
+        default=int(os.getenv('RETENTION_PRECREATE_MONTHS', '3')),
+        help='Number of months ahead to create partitions (default env RETENTION_PRECREATE_MONTHS or 3)'
     )
     parser.add_argument(
         '--dry-run',

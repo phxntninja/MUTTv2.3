@@ -42,19 +42,30 @@ logger = logging.getLogger(__name__)
 request = None  # type: ignore
 
 # Current API version
-CURRENT_API_VERSION = '2.0'
+CURRENT_API_VERSION = '2.5'
 
 # Supported API versions (newest to oldest)
-SUPPORTED_VERSIONS = ['2.0', '1.0']
+SUPPORTED_VERSIONS = ['2.5', '2.0', '1.0']
 
 # Default version if client doesn't specify
-DEFAULT_API_VERSION = '2.0'
+DEFAULT_API_VERSION = '2.5'
 
 # API version history and changelog
 VERSION_HISTORY = {
-    '2.0': {
+    '2.5': {
         'released': '2025-11-10',
         'status': 'current',
+        'changes': [
+            'Added v2 route aliases across Web UI and Ingestor',
+            'Response headers include X-API-Version and X-API-Deprecated',
+            'Config change audit logging and endpoints',
+            'Circuit breaker for Moog forwarder with metrics',
+            'Prometheus alert rules consolidated for v2.5'
+        ]
+    },
+    '2.0': {
+        'released': '2025-11-10',
+        'status': 'supported',
         'changes': [
             'Added configuration audit logging',
             'Enhanced filtering for audit logs',
