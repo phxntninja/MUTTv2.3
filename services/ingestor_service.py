@@ -1,4 +1,5 @@
-● #!/usr/bin/env python3
+#!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Ingestor Service (v2.3 - Production Ready)

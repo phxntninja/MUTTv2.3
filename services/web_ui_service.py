@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Web UI & API Service (v2.3 - Production Ready)

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Alerter Service (v2.3 - Production Ready)
