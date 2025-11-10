@@ -12,6 +12,9 @@ Commands
 - test    : Run tests (quick subset or full)
 - down    : Stop services via docker-compose
 - doctor  : Environment checks (tools, imports, basic connectivity)
+- fmt     : Format code with Black
+- lint    : Lint with Ruff
+- type    : Type-check with MyPy
 
 Usage
   python scripts/muttdev.py setup [--force]
@@ -170,12 +173,10 @@ def cmd_test(quick: bool, kexpr: Optional[str], path: Optional[str]) -> int:
         print("  python scripts/muttdev.py test --quick")
         return 127
     if quick:
-        # Target high-signal Phase 4/3 areas by default
+        # Fast unit suites only (exclude slower integration tests by default)
         targets = [
             'tests/test_retention_cleanup.py',
-            'tests/test_retention_integration.py',
             'tests/test_api_versioning.py',
-            'tests/test_versioning_integration.py',
         ]
         cmd = pytest_cmd + targets
     else:
@@ -239,6 +240,13 @@ def cmd_doctor() -> int:
     except Exception as e:
         warn(f"pytest import failed: {e}")
 
+    for mod, label in [("black", "black"), ("ruff", "ruff"), ("mypy", "mypy")]:
+        try:
+            __import__(mod)
+            ok(f"{label} import ok")
+        except Exception as e:
+            warn(f"{label} import failed: {e}")
+
     # Config + basic connectivity
     try:
         db = get_database_config()
@@ -277,6 +285,27 @@ def cmd_doctor() -> int:
     return 0
 
 
+def cmd_fmt(paths: List[str]) -> int:
+    repo_root = Path(__file__).resolve().parent.parent
+    targets = paths or ["services", "scripts", "tests", "docs", "*.py"]
+    cmd = [sys.executable, "-m", "black", "-l", "100"] + targets
+    return _run(cmd, cwd=repo_root)
+
+
+def cmd_lint(paths: List[str]) -> int:
+    repo_root = Path(__file__).resolve().parent.parent
+    targets = paths or ["services", "scripts", "tests"]
+    cmd = [sys.executable, "-m", "ruff", "check"] + targets
+    return _run(cmd, cwd=repo_root)
+
+
+def cmd_type(paths: List[str]) -> int:
+    repo_root = Path(__file__).resolve().parent.parent
+    targets = paths or ["services"]
+    cmd = [sys.executable, "-m", "mypy"] + targets
+    return _run(cmd, cwd=repo_root)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog='muttdev', description='MUTT Developer CLI')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -305,6 +334,15 @@ def main(argv=None) -> int:
 
     sub.add_parser('doctor', help='Check tools, imports, and basic connectivity')
 
+    p_fmt = sub.add_parser('fmt', help='Format code with Black')
+    p_fmt.add_argument('paths', nargs='*', help='Optional paths (default: services scripts tests docs *.py)')
+
+    p_lint = sub.add_parser('lint', help='Lint code with Ruff')
+    p_lint.add_argument('paths', nargs='*', help='Optional paths (default: services scripts tests)')
+
+    p_type = sub.add_parser('type', help='Type-check with MyPy')
+    p_type.add_argument('paths', nargs='*', help='Optional paths (default: services)')
+
     args = parser.parse_args(argv)
 
     if args.command == 'setup':
@@ -321,6 +359,12 @@ def main(argv=None) -> int:
         return cmd_down(services=args.services)
     if args.command == 'doctor':
         return cmd_doctor()
+    if args.command == 'fmt':
+        return cmd_fmt(paths=args.paths)
+    if args.command == 'lint':
+        return cmd_lint(paths=args.paths)
+    if args.command == 'type':
+        return cmd_type(paths=args.paths)
 
     parser.print_help()
     return 1

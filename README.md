@@ -1079,4 +1079,9 @@ python scripts/muttdev.py test --quick
 # Run full test suite or filter via -k
 python scripts/muttdev.py test
 python scripts/muttdev.py test -k retention
+ 
+# Format, lint, and type-check
+python scripts/muttdev.py fmt
+python scripts/muttdev.py lint
+python scripts/muttdev.py type
 ```
