@@ -221,15 +221,27 @@ def start_health_check(config: Config, stop_event: threading.Event):
 # MOOGSOFT HEALTH CHECK
 # =====================================================================
 
+_moog_health_cache: Dict[str, Any] = {"status": None, "timestamp": 0}
+_MOOG_HEALTH_CACHE_TTL = 60 # seconds
+
 def check_moogsoft_health(config: Config) -> bool:
     """
     Check if Moogsoft is healthy by sending a test event.
+    Caches the result for 60 seconds to avoid excessive API calls.
 
     Returns:
         True if Moogsoft is healthy, False otherwise
     """
+    global _moog_health_cache
+
+    # Check cache first
+    if (time.time() - _moog_health_cache["timestamp"]) < _MOOG_HEALTH_CACHE_TTL:
+        logger.debug("Returning cached Moogsoft health status")
+        return _moog_health_cache["status"]
+
     if not config.MOOG_HEALTH_CHECK_ENABLED or not config.MOOG_WEBHOOK_URL:
         logger.debug("Moogsoft health check disabled or URL not configured")
+        _moog_health_cache = {"status": True, "timestamp": time.time()}
         return True  # Assume healthy if checks disabled
 
     try:
@@ -258,21 +270,25 @@ def check_moogsoft_health(config: Config) -> bool:
             logger.warning(f"Moogsoft health check failed: {response.status_code}")
             METRIC_MOOG_HEALTH_CHECK.set(0)
 
+        _moog_health_cache = {"status": is_healthy, "timestamp": time.time()}
         return is_healthy
 
     except requests.exceptions.Timeout:
         logger.warning(f"Moogsoft health check timed out after {config.MOOG_HEALTH_TIMEOUT}s")
         METRIC_MOOG_HEALTH_CHECK.set(0)
+        _moog_health_cache = {"status": False, "timestamp": time.time()}
         return False
 
     except requests.exceptions.ConnectionError as e:
         logger.warning(f"Moogsoft health check connection error: {e}")
         METRIC_MOOG_HEALTH_CHECK.set(0)
+        _moog_health_cache = {"status": False, "timestamp": time.time()}
         return False
 
     except Exception as e:
         logger.error(f"Moogsoft health check failed: {e}")
         METRIC_MOOG_HEALTH_CHECK.set(0)
+        _moog_health_cache = {"status": False, "timestamp": time.time()}
         return False
 
 

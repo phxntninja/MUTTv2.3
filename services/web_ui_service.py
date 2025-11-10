@@ -69,6 +69,13 @@ if True:
   except Exception:  # pragma: no cover - optional import safety
       log_config_change = None  # type: ignore
 
+  # SLO Definitions (Phase 3)
+  try:
+      from slo_definitions import SLO_TARGETS, GLOBAL_SLO_SETTINGS # type: ignore
+  except Exception: # pragma: no cover - optional import safety
+      SLO_TARGETS = {} # type: ignore
+      GLOBAL_SLO_SETTINGS = {} # type: ignore
+
   # Phase 2 Observability (opt-in)
   try:
       from logging_utils import setup_json_logging  # type: ignore
@@ -853,61 +860,119 @@ def create_app() -> Flask:
       @require_api_key
       def get_slo():
           """Return current SLO status for key components."""
-          window_hours = _dyn_get_int('slo_window_hours', 24)
-          window = f"{window_hours}h"
-
-          # Targets
-          ingest_target = _dyn_get_float('slo_ingest_success_target', 0.995)
-          forward_target = _dyn_get_float('slo_forward_success_target', 0.99)
-
-          # Approved queries
-          q_ingest = f"sum(rate(mutt_ingest_requests_total{{status=\"success\"}}[{window}])) / sum(rate(mutt_ingest_requests_total[{window}]))"
-          q_forward = f"sum(rate(mutt_moog_requests_total{{status=\"success\"}}[{window}])) / sum(rate(mutt_moog_requests_total[{window}]))"
+          report = {}
+          all_slo_results = []
 
           with METRIC_API_LATENCY.labels(endpoint='slo').time():
               try:
-                  ingest_avail = _query_prometheus(q_ingest)
-                  forward_avail = _query_prometheus(q_forward)
+                  for slo_name, slo_def in SLO_TARGETS.items():
+                      # Get dynamic settings or fallbacks
+                      window_hours = _dyn_get_int(f"slo_{slo_name}_window_hours", slo_def.get("window_hours", GLOBAL_SLO_SETTINGS.get("default_slo_window_hours", 24)))
+                      burn_rate_warning = _dyn_get_float(f"slo_{slo_name}_burn_rate_warning", slo_def.get("burn_rate_threshold_warning", GLOBAL_SLO_SETTINGS.get("default_burn_rate_warning", 5.0)))
+                      burn_rate_critical = _dyn_get_float(f"slo_{slo_name}_burn_rate_critical", slo_def.get("burn_rate_threshold_critical", GLOBAL_SLO_SETTINGS.get("default_burn_rate_critical", 10.0)))
+                      upper_bound_warning = _dyn_get_float(f"slo_{slo_name}_upper_bound_warning", slo_def.get("upper_bound_threshold_warning", 0.0))
+                      upper_bound_critical = _dyn_get_float(f"slo_{slo_name}_upper_bound_critical", slo_def.get("upper_bound_threshold_critical", 0.0))
 
-                  def build(component: str, availability: Optional[float], target: float) -> Dict[str, Any]:
-                      if availability is None:
-                          return {
-                              "component": component,
-                              "target": target,
-                              "availability": None,
-                              "error_budget_remaining": None,
-                              "burn_rate": None,
-                              "window_hours": window_hours,
-                              "state": "critical",
-                          }
-                      err_budget = max(0.0, 1.0 - target)
-                      err_rate = max(0.0, 1.0 - availability)
-                      burn_rate = (err_rate / err_budget) if err_budget > 0 else 0.0
-                      state = 'ok' if burn_rate <= 1.0 else ('warn' if burn_rate <= 2.0 else 'critical')
-                      return {
-                          "component": component,
-                          "target": target,
-                          "availability": availability,
-                          "error_budget_remaining": max(0.0, 1.0 - availability) / (1.0 - target) if (1.0 - target) > 0 else 1.0,
-                          "burn_rate": burn_rate,
-                          "window_hours": window_hours,
-                          "state": state,
-                      }
+                      # Construct query with dynamic window
+                      metric_query = slo_def["metric_query"].replace("[5m]", f"[{window_hours}h]")
+                      
+                      actual_value = _query_prometheus(metric_query)
 
-                  response = {
-                      "window_hours": window_hours,
-                      "components": {
-                          "ingestor": build('ingestor', ingest_avail, ingest_target),
-                          "forwarder": build('forwarder', forward_avail, forward_target),
-                      }
+                      slo_result = _build_slo_result(
+                          slo_name=slo_name,
+                          description=slo_def["description"],
+                          actual_value=actual_value,
+                          target=slo_def.get("target"),
+                          target_seconds=slo_def.get("target_seconds"),
+                          window_hours=window_hours,
+                          burn_rate_warning=burn_rate_warning,
+                          burn_rate_critical=burn_rate_critical,
+                          upper_bound_warning=upper_bound_warning,
+                          upper_bound_critical=upper_bound_critical
+                      )
+                      all_slo_results.append(slo_result)
+                  
+                  report = {
+                      "timestamp": datetime.utcnow().isoformat(),
+                      "slos": all_slo_results
                   }
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='slo', status='success').inc()
-                  return jsonify(response)
+                  return jsonify(report)
 
               except Exception as e:
                   logger.error(f"Failed to compute SLOs: {e}", exc_info=True)
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='slo', status='error').inc()
                   return jsonify({"error": str(e)}), 500
+
+      def _build_slo_result(
+          slo_name: str,
+          description: str,
+          actual_value: Optional[float],
+          target: Optional[float] = None,
+          target_seconds: Optional[float] = None,
+          window_hours: int = 24,
+          burn_rate_warning: float = 5.0,
+          burn_rate_critical: float = 10.0,
+          upper_bound_warning: float = 0.0,
+          upper_bound_critical: float = 0.0
+      ) -> Dict[str, Any]:
+          """
+          Helper to build a single SLO result dictionary.
+          """
+          result: Dict[str, Any] = {
+              "slo_name": slo_name,
+              "description": description,
+              "window_hours": window_hours,
+              "actual_value": actual_value,
+              "status": "unknown",
+              "error_budget_remaining": None,
+              "burn_rate": None,
+              "message": "No data from Prometheus" if actual_value is None else ""
+          }
+
+          if actual_value is None:
+              result["status"] = "critical" # No data is critical
+              return result
+
+          if target is not None: # Availability/Success Rate SLO
+              result["target"] = target
+              error_budget = max(0.0, 1.0 - target)
+              error_rate = max(0.0, 1.0 - actual_value)
+              burn_rate = (error_rate / error_budget) if error_budget > 0 else 0.0
+
+              result["error_budget_remaining"] = (actual_value - target) / (1.0 - target) if (1.0 - target) > 0 else 1.0
+              result["burn_rate"] = burn_rate
+
+              if burn_rate >= burn_rate_critical:
+                  result["status"] = "critical"
+                  result["message"] = f"Critical burn rate ({burn_rate:.2f}x target)"
+              elif burn_rate >= burn_rate_warning:
+                  result["status"] = "warning"
+                  result["message"] = f"Warning burn rate ({burn_rate:.2f}x target)"
+              elif actual_value < target:
+                  result["status"] = "breaching"
+                  result["message"] = "Below target"
+              else:
+                  result["status"] = "ok"
+                  result["message"] = "Within target"
+
+          elif target_seconds is not None: # Latency SLO (upper bound)
+              result["target_seconds"] = target_seconds
+              
+              if actual_value >= upper_bound_critical:
+                  result["status"] = "critical"
+                  result["message"] = f"Critical latency ({actual_value:.3f}s > {upper_bound_critical:.3f}s)"
+              elif actual_value >= upper_bound_warning:
+                  result["status"] = "warning"
+                  result["message"] = f"Warning latency ({actual_value:.3f}s > {upper_bound_warning:.3f}s)"
+              elif actual_value > target_seconds:
+                  result["status"] = "breaching"
+                  result["message"] = "Above target latency"
+              else:
+                  result["status"] = "ok"
+                  result["message"] = "Within target latency"
+          
+          return result
 
       @app.route('/api/v1/rules', methods=['GET'])
       @require_api_key

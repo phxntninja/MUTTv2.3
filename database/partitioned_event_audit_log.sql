@@ -62,22 +62,7 @@ COMMENT ON COLUMN event_audit_log_archive.archived_from_partition IS
 -- Note: Update these dates as needed for your deployment
 -- =====================================================================
 
--- Get current date and create next 3 months
-DO $$
-DECLARE
-    current_month DATE;
-    i INTEGER;
-BEGIN
-    -- Start from current month
-    current_month := DATE_TRUNC('month', CURRENT_DATE);
 
-    -- Create partitions for next 3 months
-    FOR i IN 0..2 LOOP
-        PERFORM create_monthly_partition(current_month + (i || ' months')::INTERVAL);
-    END LOOP;
-
-    RAISE NOTICE 'Pre-created partitions for next 3 months starting from %', current_month;
-END $$;
 
 -- =====================================================================
 -- Archive Function - Move Old Events to Archive Table

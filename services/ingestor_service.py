@@ -428,6 +428,36 @@ if True:
           logger.warning(f"Dynamic queue size lookup failed, using static: {e}")
           return int(app.config["CONFIG"]["MAX_INGEST_QUEUE_SIZE"])
 
+  def _get_ingest_max_rate(app: Flask) -> int:
+      """
+      Resolve max ingest rate, using DynamicConfig if enabled.
+      """
+      try:
+          base_rate = int(app.config["CONFIG"]["INGEST_MAX_RATE"])
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return base_rate
+          value = dyn.get('ingest_max_rate', default=str(base_rate))
+          return int(value)
+      except Exception as e:
+          logger.warning(f"Dynamic ingest rate lookup failed, using static: {e}")
+          return int(app.config["CONFIG"]["INGEST_MAX_RATE"])
+
+  def _get_ingest_rate_window(app: Flask) -> int:
+      """
+      Resolve ingest rate window, using DynamicConfig if enabled.
+      """
+      try:
+          base_window = int(app.config["CONFIG"]["INGEST_RATE_WINDOW"])
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return base_window
+          value = dyn.get('ingest_rate_window', default=str(base_window))
+          return int(value)
+      except Exception as e:
+          logger.warning(f"Dynamic ingest rate window lookup failed, using static: {e}")
+          return int(app.config["CONFIG"]["INGEST_RATE_WINDOW"])
+
 
   def create_app() -> Flask:
       """Creates and configures the Flask application."""
@@ -458,12 +488,12 @@ if True:
               app.rate_limiter = RedisSlidingWindowRateLimiter(
                   redis_client=redis_client,
                   key="mutt:rate_limit:ingestor",
-                  max_requests=app.config["CONFIG"]["INGEST_MAX_RATE"],
-                  window_seconds=app.config["CONFIG"]["INGEST_RATE_WINDOW"]
+                  max_requests=_get_ingest_max_rate(app),
+                  window_seconds=_get_ingest_rate_window(app)
               )
               logger.info(
-                  f"Rate limiter enabled: {app.config['CONFIG']['INGEST_MAX_RATE']} requests "
-                  f"per {app.config['CONFIG']['INGEST_RATE_WINDOW']} seconds"
+                  f"Rate limiter enabled: {_get_ingest_max_rate(app)} requests "
+                  f"per {_get_ingest_rate_window(app)} seconds"
               )
           except Exception as e:
               logger.warning(f"Failed to initialize rate limiter: {e}; continuing without it")
@@ -547,7 +577,7 @@ if True:
                           "status": "error",
                           "message": "Too Many Requests - rate limit exceeded",
                           "correlation_id": correlation_id,
-                          "retry_after": config["INGEST_RATE_WINDOW"]
+                          "retry_after": _get_ingest_rate_window(app)
                       }), 429
 
               # --------------------------------------------------------

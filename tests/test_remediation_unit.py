@@ -189,6 +189,35 @@ class TestMoogsoftHealthCheck:
         assert result is False
 
     @patch('remediation_service.requests.post')
+    def test_health_check_cache(self, mock_post, mock_config):
+        """Test that health check results are cached."""
+        from remediation_service import check_moogsoft_health, _moog_health_cache, _MOOG_HEALTH_CACHE_TTL
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        # Clear cache before test
+        _moog_health_cache["status"] = None
+        _moog_health_cache["timestamp"] = 0
+
+        # First call - should hit actual API
+        result1 = check_moogsoft_health(mock_config)
+        assert result1 is True
+        mock_post.assert_called_once()
+
+        # Second call within TTL - should use cache
+        result2 = check_moogsoft_health(mock_config)
+        assert result2 is True
+        mock_post.assert_called_once() # Still only one call
+
+        # Advance time beyond TTL
+        with patch('time.time', return_value=_moog_health_cache["timestamp"] + _MOOG_HEALTH_CACHE_TTL + 1):
+            result3 = check_moogsoft_health(mock_config)
+            assert result3 is True
+            assert mock_post.call_count == 2 # Should call API again
+
+    @patch('remediation_service.requests.post')
     def test_health_check_connection_error(self, mock_post, mock_config):
         """Test health check handles connection error."""
         from remediation_service import check_moogsoft_health
