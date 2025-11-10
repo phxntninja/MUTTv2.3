@@ -141,6 +141,18 @@ kubectl create job --from=cronjob/retention-cleanup \
 kubectl logs -f -n mutt -l job-name=retention-cleanup-manual-XXXXXXX
 ```
 
+### Local Run (no container)
+
+Run the cleanup script directly on your machine (no Docker image or registry required):
+
+```bash
+# Quick run with current environment
+python scripts/retention_cleanup.py
+
+# Dry-run example (logs what would be deleted)
+RETENTION_DRY_RUN=true python scripts/retention_cleanup.py
+```
+
 ### Docker Container
 
 Build and run the retention cleanup container:

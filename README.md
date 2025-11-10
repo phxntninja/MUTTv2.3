@@ -36,6 +36,7 @@
   - [API Docs](#api-docs)
   - [Runbook](#runbook)
   - [Dashboards & Alerts](#dashboards--alerts)
+  - [Developer CLI](#developer-cli)
 
   ---
 
@@ -1053,3 +1054,18 @@ More details:
   - Load into your Prometheus/Alertmanager stack; adjust thresholds to your environment.
 - Alertmanager example routing: `docs/alertmanager/config-v25.yml`
   - Replace email/webhook with your receivers and global SMTP/webhook config.
+
+## Developer CLI
+
+Use the lightweight helper for common dev tasks:
+
+```bash
+# Create .env from template (non-destructive by default)
+python scripts/muttdev.py setup
+
+# Show config (db/redis/retention)
+python scripts/muttdev.py config --section all
+
+# Suggested log commands for a service
+python scripts/muttdev.py logs --service webui --tail 200
+```
