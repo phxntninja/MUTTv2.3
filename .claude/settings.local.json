@@ -12,7 +12,9 @@
       "Bash(cat:*)",
       "Bash(git checkout:*)",
       "Bash(del temp_ci.yml)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPriority 4: Add ADR index link to main README\n\n- Added prominent link to docs/adr/README.md in Quickstart section\n- Improves discoverability of Architecture Decision Records\n- Provides context about ADR content (Redis vs Kafka, Vault, etc.)\n- Completes Phase 6 Priority 4: Documentation Polish\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
