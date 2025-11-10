@@ -1,6 +1,6 @@
 # AI Coordination Status
 
-**Last Updated:** 2025-11-10 (Auto-update this when AI changes roles)
+**Last Updated:** 2025-11-10 (Auto-updated: Phase 3 marked complete; plan link updated)
 
 ---
 
@@ -10,7 +10,7 @@
 **Status:** Completed Phase 1, created handoff at 65% budget
 **Last Work:** Phase 1 complete (Infrastructure & Database)
 **Token Budget:** 126,255 / 200,000 used (63.1%) at handoff
-**Handoff:** `HANDOFF_2025-11-09_65PCT.md`
+**Handoff:** `HANDOFF_2025-11-09_65PCT_completed.md`
 
 **Completed:**
 - ✅ Phase 1: Infrastructure & Database (8/8 tasks)
@@ -24,7 +24,7 @@
 **Status:** Completed Phase 2, created multiple handoffs
 **Work:** Phase 2 complete (Hot Reload, Secrets, Observability)
 **Handoffs:**
-- `ai/handoffs/CLAUDE_PHASE2_HANDOFF.md`
+- `ai/handoffs/CLAUDE_PHASE2_HANDOFF_completed.md`
 - `ai/handoffs/CLAUDE_PHASE2_COMPLETION.md`
 - `ai/handoffs/PHASE_2B_VALIDATION_REPORT.md`
 
@@ -40,21 +40,13 @@
 
 ---
 
-### Claude (CLI) - Session 3 (Current) - **ON STANDBY** 🟡
-**Status:** Just resumed, pushed handoff, reviewing Phase 2 completion
-**Token Budget:** ~40,000 / 200,000 used (20%)
-**Available for:** ~160,000 tokens remaining (80%)
+### Claude (CLI) - Session 3 (Current) - **COMPLETE** ✅
+**Status:** Phase 3 delivered (Backpressure, Remediation, SLOs)
+**Notes:** See `docs/PHASE_3_HANDOFF_TO_ARCHITECT.md` for details
 
-**Current Task:**
-- Review Phase 2 completion by Session 2
-- Understand Phase 3 status
-- Coordinate next steps with Gemini's answers
-
-**Will Resume for:**
-- Phase 3: Reliability & Observability (remaining work)
+**Next Focus:**
 - Phase 4: API & Compliance
 - Phase 5: Developer Experience
-- Final deployment work
 
 ---
 
@@ -79,20 +71,13 @@
 ---
 
 ### OpenAI Codex - **ACTIVE** 🟢
-**Status:** Working on Gemini's Phase 1
-**Current Task:** Code hygiene & clarity improvements
+**Status:** Beginning Phase 4 implementation per current plan
+**Current Plan:** `CURRENT_PLAN.md`
 
-**Working On:**
-- Task 1.1: Implement linter/formatter (black + ruff)
-- Task 1.2: Add type hints to original services
-- Task 1.3: Integrate DynamicConfig into services
-- Task 1.4: Enhance documentation
-
-**Expected Outputs:**
-- Linting configuration files
-- Type-annotated service code
-- DynamicConfig integration in 4 services
-- Updated documentation
+**Working On (Phase 4):**
+- Audit logging integration in Web UI CRUD
+- Audit log API endpoints and UI component
+- API versioning and documentation updates
 
 ---
 
@@ -168,12 +153,12 @@
 
 ## 🎯 Current Phase Status
 
-### Our V2.5 Plan (Claude's Original Plan)
+### Our V2.5 Plan (Current Status)
 - ✅ **Phase 1:** Infrastructure & Database (8/8 tasks) - **COMPLETE**
 - ✅ **Phase 2:** Hot Reload & Secrets (10/10 tasks) - **COMPLETE**
-- 🔄 **Phase 3:** Reliability & Observability (2/12 tasks) - **IN PROGRESS**
-- ⏳ **Phase 4:** API & Compliance (0/10 tasks) - **PENDING**
-- ⏳ **Phase 5:** Developer Experience (0/10 tasks) - **PENDING**
+- ✅ **Phase 3:** Reliability & Observability - **COMPLETE**
+- 🔄 **Phase 4:** API & Compliance - **IN PROGRESS (per CURRENT_PLAN.md)**
+- ⏳ **Phase 5:** Developer Experience - **PENDING**
 
 ### Gemini's Modernization Plan
 - ✅ **Phase 1:** Code Hygiene & Clarity - **COMPLETE** (integrated into Phase 2)
@@ -190,15 +175,14 @@
 2. Claude Session 1: Phase 1 (Infrastructure) ✅
 3. Claude Session 2: Phase 2 (Hot Reload, Observability) ✅
 4. Gemini: Answered Phase 3 architecture questions ✅
-5. Claude Session 3: Ready to continue Phase 3 🔄
+5. Claude Session 3: Delivered Phase 3 ✅
+6. Codex: Starting Phase 4 🔄
 ```
 
 ### Next Steps
-1. **Review Phase 2 completion** - Understand new services and infrastructure
-2. **Continue Phase 3** - Reliability & Observability (10 tasks remaining)
-3. **Complete Phase 4** - API & Compliance (10 tasks)
-4. **Complete Phase 5** - Developer Experience (10 tasks)
-5. **Final testing & deployment**
+1. **Execute Phase 4** - API & Compliance (see `CURRENT_PLAN.md`)
+2. **Execute Phase 5** - Developer Experience
+3. **Integration tests & final validation**
 
 ---
 
@@ -216,9 +200,10 @@
 3. Tag appropriate AI to help
 
 ### When AI Needs Context
-1. Read `AI_COLLABORATION_HANDOFF.md`
+1. Read `CURRENT_PLAN.md`
 2. Read this status file
-3. Check `V2.5_TASK_TRACKER.md`
+3. See `docs/PHASE_3_HANDOFF_TO_ARCHITECT.md`
+4. Check `V2.5_TASK_TRACKER.md` (legacy tracker; not authoritative)
 
 ---
 
@@ -250,9 +235,8 @@
 ### Short Term (This Week)
 - ✅ Phase 1 complete (Infrastructure & Database)
 - ✅ Phase 2 complete (Hot Reload, Secrets, Observability)
-- ✅ All Gemini recommendations implemented
-- [x] Integration tests added
-- [ ] Continue Phase 3 (Reliability - 10 tasks remaining)
+- ✅ Phase 3 complete (Reliability & Observability)
+- [ ] Phase 4: API & Compliance in progress
 
 ### Medium Term (Next 1-2 Weeks)
 - [ ] Complete Phase 3: Reliability & Observability
