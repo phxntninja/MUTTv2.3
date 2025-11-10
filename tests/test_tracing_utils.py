@@ -74,93 +74,105 @@ class TestTracingUtilsWithOTEL(unittest.TestCase):
         self.assertFalse(result)
         self.assertFalse(self.tracing_utils.is_tracing_enabled())
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.TracerProvider")
-    @patch("tracing_utils.OTLPSpanExporter")
-    @patch("tracing_utils.BatchSpanProcessor")
-    def test_tracing_enabled(
-        self, mock_processor, mock_exporter, mock_provider, mock_trace
-    ):
+    def test_tracing_enabled(self):
         """Test that tracing can be enabled."""
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
+
         os.environ["OTEL_ENABLED"] = "true"
 
-        # Mock the provider instance
-        mock_provider_instance = MagicMock()
-        mock_provider.return_value = mock_provider_instance
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils.trace") as mock_trace:
+                with patch("tracing_utils.TracerProvider") as mock_provider:
+                    with patch("tracing_utils.OTLPSpanExporter") as mock_exporter:
+                        with patch("tracing_utils.BatchSpanProcessor"):
+                            # Mock the provider instance
+                            mock_provider_instance = MagicMock()
+                            mock_provider.return_value = mock_provider_instance
 
-        # Mock tracer
-        mock_tracer = MagicMock()
-        mock_trace.get_tracer.return_value = mock_tracer
+                            # Mock tracer
+                            mock_tracer = MagicMock()
+                            mock_trace.get_tracer.return_value = mock_tracer
 
-        result = self.tracing_utils.setup_tracing("test-service", "1.0.0")
+                            result = self.tracing_utils.setup_tracing("test-service", "1.0.0")
 
-        self.assertTrue(result)
-        self.assertTrue(self.tracing_utils.is_tracing_enabled())
+                            self.assertTrue(result)
+                            self.assertTrue(self.tracing_utils.is_tracing_enabled())
 
-        # Verify provider was created
-        mock_provider.assert_called_once()
+                            # Verify provider was created
+                            mock_provider.assert_called_once()
 
-        # Verify exporter was created with correct endpoint
-        mock_exporter.assert_called_once()
+                            # Verify exporter was created with correct endpoint
+                            mock_exporter.assert_called_once()
 
-        # Verify tracer was obtained
-        mock_trace.get_tracer.assert_called_once()
+                            # Verify tracer was obtained
+                            mock_trace.get_tracer.assert_called_once()
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.TracerProvider")
-    @patch("tracing_utils.OTLPSpanExporter")
-    @patch("tracing_utils.BatchSpanProcessor")
-    def test_custom_otlp_endpoint(
-        self, mock_processor, mock_exporter, mock_provider, mock_trace
-    ):
+    def test_custom_otlp_endpoint(self):
         """Test custom OTLP endpoint configuration."""
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
+
         os.environ["OTEL_ENABLED"] = "true"
         os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://collector:4317"
 
-        mock_provider_instance = MagicMock()
-        mock_provider.return_value = mock_provider_instance
-        mock_trace.get_tracer.return_value = MagicMock()
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils.trace") as mock_trace:
+                with patch("tracing_utils.TracerProvider") as mock_provider:
+                    with patch("tracing_utils.OTLPSpanExporter") as mock_exporter:
+                        with patch("tracing_utils.BatchSpanProcessor"):
+                            mock_provider_instance = MagicMock()
+                            mock_provider.return_value = mock_provider_instance
+                            mock_trace.get_tracer.return_value = MagicMock()
 
-        self.tracing_utils.setup_tracing("test-service", "1.0.0")
+                            self.tracing_utils.setup_tracing("test-service", "1.0.0")
 
-        # Verify exporter was called with custom endpoint
-        mock_exporter.assert_called_once()
-        call_kwargs = mock_exporter.call_args[1]
-        self.assertEqual(call_kwargs["endpoint"], "http://collector:4317")
+                            # Verify exporter was called with custom endpoint
+                            mock_exporter.assert_called_once()
+                            call_kwargs = mock_exporter.call_args[1]
+                            self.assertEqual(call_kwargs["endpoint"], "http://collector:4317")
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.TracerProvider")
-    @patch("tracing_utils.OTLPSpanExporter")
-    @patch("tracing_utils.BatchSpanProcessor")
-    @patch("tracing_utils.Resource")
-    def test_resource_attributes(
-        self, mock_resource, mock_processor, mock_exporter, mock_provider, mock_trace
-    ):
+    def test_resource_attributes(self):
         """Test that resource attributes are properly set."""
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
+
         os.environ["OTEL_ENABLED"] = "true"
         os.environ["OTEL_SERVICE_NAME"] = "custom-service"
         os.environ["POD_NAME"] = "test-pod-123"
         os.environ["SERVICE_VERSION"] = "2.0.0"
         os.environ["OTEL_RESOURCE_ATTRIBUTES"] = "env=prod,region=us-west"
 
-        mock_provider_instance = MagicMock()
-        mock_provider.return_value = mock_provider_instance
-        mock_trace.get_tracer.return_value = MagicMock()
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils.trace") as mock_trace:
+                with patch("tracing_utils.TracerProvider") as mock_provider:
+                    with patch("tracing_utils.OTLPSpanExporter"):
+                        with patch("tracing_utils.BatchSpanProcessor"):
+                            with patch("tracing_utils.Resource") as mock_resource:
+                                mock_provider_instance = MagicMock()
+                                mock_provider.return_value = mock_provider_instance
+                                mock_trace.get_tracer.return_value = MagicMock()
 
-        self.tracing_utils.setup_tracing("test-service", "1.0.0")
+                                self.tracing_utils.setup_tracing("test-service", "1.0.0")
 
-        # Verify Resource.create was called
-        mock_resource.create.assert_called_once()
-        attrs = mock_resource.create.call_args[0][0]
+                                # Verify Resource.create was called
+                                mock_resource.create.assert_called_once()
+                                attrs = mock_resource.create.call_args[0][0]
 
-        # Check custom attributes
-        self.assertIn("env", attrs)
-        self.assertEqual(attrs["env"], "prod")
-        self.assertIn("region", attrs)
-        self.assertEqual(attrs["region"], "us-west")
+                                # Check custom attributes
+                                self.assertIn("env", attrs)
+                                self.assertEqual(attrs["env"], "prod")
+                                self.assertIn("region", attrs)
+                                self.assertEqual(attrs["region"], "us-west")
 
     def test_get_current_trace_ids_when_disabled(self):
         """Test get_current_trace_ids returns None when tracing disabled."""
@@ -242,31 +254,37 @@ class TestTracingUtilsWithOTEL(unittest.TestCase):
         mock_span.set_attribute.assert_called_once_with("key", "value")
         mock_span.end.assert_called_once()
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils._tracing_enabled", True)
-    @patch("tracing_utils._tracer")
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.Status")
-    @patch("tracing_utils.StatusCode")
-    def test_create_span_with_exception(
-        self, mock_status_code, mock_status, mock_trace, mock_tracer
-    ):
+    def test_create_span_with_exception(self):
         """Test that exceptions are recorded in spans."""
-        mock_span = MagicMock()
-        mock_tracer.start_span.return_value = mock_span
-        mock_status_code.ERROR = "ERROR"
-
-        test_error = ValueError("Test error")
-
+        # Skip if OTEL not installed
         try:
-            with self.tracing_utils.create_span("test-operation") as span:
-                raise test_error
-        except ValueError:
-            pass
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
 
-        # Verify exception was recorded
-        mock_span.record_exception.assert_called_once_with(test_error)
-        mock_span.set_status.assert_called_once()
+        mock_span = MagicMock()
+        mock_tracer = MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils._tracing_enabled", True):
+                with patch("tracing_utils._tracer", mock_tracer):
+                    with patch("tracing_utils.trace"):
+                        with patch("opentelemetry.trace.Status") as mock_status:
+                            with patch("opentelemetry.trace.StatusCode") as mock_status_code:
+                                mock_status_code.ERROR = "ERROR"
+
+                                test_error = ValueError("Test error")
+
+                                try:
+                                    with self.tracing_utils.create_span("test-operation") as span:
+                                        raise test_error
+                                except ValueError:
+                                    pass
+
+                                # Verify exception was recorded
+                                mock_span.record_exception.assert_called_once_with(test_error)
+                                mock_span.set_status.assert_called_once()
 
     def test_create_span_when_disabled(self):
         """Test create_span is no-op when tracing disabled."""
@@ -292,23 +310,29 @@ class TestTracingUtilsWithOTEL(unittest.TestCase):
         # Should not raise any errors
         self.tracing_utils.set_span_attribute("test.key", "test.value")
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils._tracing_enabled", True)
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.Status")
-    @patch("tracing_utils.StatusCode")
-    def test_record_exception(self, mock_status_code, mock_status, mock_trace):
+    def test_record_exception(self):
         """Test recording exceptions on current span."""
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = True
-        mock_trace.get_current_span.return_value = mock_span
-        mock_status_code.ERROR = "ERROR"
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
 
-        test_error = RuntimeError("Test error")
-        self.tracing_utils.record_exception(test_error)
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils._tracing_enabled", True):
+                with patch("tracing_utils.trace") as mock_trace:
+                    with patch("opentelemetry.trace.Status") as mock_status:
+                        with patch("opentelemetry.trace.StatusCode") as mock_status_code:
+                            mock_span = MagicMock()
+                            mock_span.is_recording.return_value = True
+                            mock_trace.get_current_span.return_value = mock_span
+                            mock_status_code.ERROR = "ERROR"
 
-        mock_span.record_exception.assert_called_once_with(test_error)
-        mock_span.set_status.assert_called_once()
+                            test_error = RuntimeError("Test error")
+                            self.tracing_utils.record_exception(test_error)
+
+                            mock_span.record_exception.assert_called_once_with(test_error)
+                            mock_span.set_status.assert_called_once()
 
     def test_record_exception_when_disabled(self):
         """Test record_exception is no-op when disabled."""
@@ -316,53 +340,55 @@ class TestTracingUtilsWithOTEL(unittest.TestCase):
         test_error = RuntimeError("Test error")
         self.tracing_utils.record_exception(test_error)
 
-    @patch("tracing_utils.OTEL_AVAILABLE", True)
-    @patch("tracing_utils.trace")
-    @patch("tracing_utils.TracerProvider")
-    @patch("tracing_utils.OTLPSpanExporter")
-    @patch("tracing_utils.BatchSpanProcessor")
-    @patch("tracing_utils.FlaskInstrumentor")
-    @patch("tracing_utils.RequestsInstrumentor")
-    @patch("tracing_utils.RedisInstrumentor")
-    @patch("tracing_utils.Psycopg2Instrumentor")
-    def test_auto_instrumentation(
-        self,
-        mock_pg,
-        mock_redis,
-        mock_requests,
-        mock_flask,
-        mock_processor,
-        mock_exporter,
-        mock_provider,
-        mock_trace,
-    ):
+    def test_auto_instrumentation(self):
         """Test that auto-instrumentation is enabled."""
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
+
         os.environ["OTEL_ENABLED"] = "true"
 
-        mock_provider_instance = MagicMock()
-        mock_provider.return_value = mock_provider_instance
-        mock_trace.get_tracer.return_value = MagicMock()
+        with patch("tracing_utils.OTEL_AVAILABLE", True):
+            with patch("tracing_utils.trace") as mock_trace:
+                with patch("tracing_utils.TracerProvider") as mock_provider:
+                    with patch("tracing_utils.OTLPSpanExporter"):
+                        with patch("tracing_utils.BatchSpanProcessor"):
+                            with patch("tracing_utils.FlaskInstrumentor") as mock_flask:
+                                with patch("tracing_utils.RequestsInstrumentor") as mock_requests:
+                                    with patch("tracing_utils.RedisInstrumentor") as mock_redis:
+                                        with patch("tracing_utils.Psycopg2Instrumentor") as mock_pg:
+                                            mock_provider_instance = MagicMock()
+                                            mock_provider.return_value = mock_provider_instance
+                                            mock_trace.get_tracer.return_value = MagicMock()
 
-        # Mock instrumentor instances
-        mock_flask_inst = MagicMock()
-        mock_flask.return_value = mock_flask_inst
-        mock_requests_inst = MagicMock()
-        mock_requests.return_value = mock_requests_inst
-        mock_redis_inst = MagicMock()
-        mock_redis.return_value = mock_redis_inst
-        mock_pg_inst = MagicMock()
-        mock_pg.return_value = mock_pg_inst
+                                            # Mock instrumentor instances
+                                            mock_flask_inst = MagicMock()
+                                            mock_flask.return_value = mock_flask_inst
+                                            mock_requests_inst = MagicMock()
+                                            mock_requests.return_value = mock_requests_inst
+                                            mock_redis_inst = MagicMock()
+                                            mock_redis.return_value = mock_redis_inst
+                                            mock_pg_inst = MagicMock()
+                                            mock_pg.return_value = mock_pg_inst
 
-        self.tracing_utils.setup_tracing("test-service", "1.0.0")
+                                            self.tracing_utils.setup_tracing("test-service", "1.0.0")
 
-        # Verify instrumentors were called
-        mock_flask_inst.instrument.assert_called_once()
-        mock_requests_inst.instrument.assert_called_once()
-        mock_redis_inst.instrument.assert_called_once()
-        mock_pg_inst.instrument.assert_called_once()
+                                            # Verify instrumentors were called
+                                            mock_flask_inst.instrument.assert_called_once()
+                                            mock_requests_inst.instrument.assert_called_once()
+                                            mock_redis_inst.instrument.assert_called_once()
+                                            mock_pg_inst.instrument.assert_called_once()
 
     def test_otel_enabled_variations(self):
         """Test various ways to enable OTEL."""
+        # Skip if OTEL not installed
+        try:
+            import opentelemetry
+        except ImportError:
+            self.skipTest("OpenTelemetry not installed")
+
         test_cases = ["true", "True", "TRUE", "1", "yes", "on"]
 
         for value in test_cases:

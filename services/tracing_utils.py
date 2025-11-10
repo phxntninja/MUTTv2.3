@@ -407,6 +407,7 @@ def create_span(
         yield None
         return
 
+    span = None
     try:
         span = _tracer.start_span(name, kind=kind)
 
@@ -421,19 +422,18 @@ def create_span(
         # Make span active in context
         token = trace.set_span_in_context(span)
 
-        try:
-            yield span
-        except Exception as e:
-            # Record exception in span
-            span.set_status(Status(StatusCode.ERROR, str(e)))
-            span.record_exception(e)
-            raise
-        finally:
-            span.end()
+        yield span
 
     except Exception as e:
-        logger.debug(f"Failed to create span: {e}")
-        yield None
+        # Record exception in span if we have one
+        if span is not None:
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            span.record_exception(e)
+        raise
+    finally:
+        # Always end the span if it was created
+        if span is not None:
+            span.end()
 
 
 def set_span_attribute(key: str, value: Any) -> None:
