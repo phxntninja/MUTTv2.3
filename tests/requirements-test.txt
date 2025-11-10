@@ -11,7 +11,7 @@ pytest-mock==3.12.0        # Mocking helpers
 pytest-xdist==3.5.0        # Parallel test execution
 
 # Testing utilities
-coverage==7.4.0            # Coverage measurement
+coverage==7.10.7            # Coverage measurement
 mock==5.1.0                # Additional mocking support
 
 # Code quality (optional)
