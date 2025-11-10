@@ -330,11 +330,157 @@ def get_recent_changes(
         cursor.close()
 
 
+def query_audit_logs(
+    conn,
+    changed_by: Optional[str] = None,
+    operation: Optional[str] = None,
+    table_name: Optional[str] = None,
+    record_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50
+) -> dict:
+    """
+    Query audit logs with advanced filtering and pagination.
+
+    Args:
+        conn: psycopg2 database connection
+        changed_by: Filter by user/API key (partial match supported)
+        operation: Filter by operation type (CREATE, UPDATE, DELETE)
+        table_name: Filter by table name (exact match)
+        record_id: Filter by specific record ID
+        start_date: Filter by start datetime (ISO format or SQL timestamp)
+        end_date: Filter by end datetime (ISO format or SQL timestamp)
+        page: Page number (1-indexed, default: 1)
+        limit: Records per page (default: 50, max: 200)
+
+    Returns:
+        dict: Contains 'logs' (list of audit records) and 'pagination' metadata
+
+    Examples:
+        # Get all changes by a specific user
+        >>> result = query_audit_logs(conn, changed_by='admin_user')
+        >>> print(f"Found {result['pagination']['total']} changes")
+
+        # Get all DELETE operations in the last 7 days
+        >>> from datetime import datetime, timedelta
+        >>> week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        >>> result = query_audit_logs(
+        ...     conn,
+        ...     operation='DELETE',
+        ...     start_date=week_ago
+        ... )
+
+        # Get changes to a specific table with pagination
+        >>> result = query_audit_logs(
+        ...     conn,
+        ...     table_name='alert_rules',
+        ...     page=2,
+        ...     limit=25
+        ... )
+    """
+    try:
+        # Validate and sanitize inputs
+        page = max(1, page)
+        limit = min(200, max(1, limit))
+        offset = (page - 1) * limit
+
+        if operation and operation not in ('CREATE', 'UPDATE', 'DELETE'):
+            raise ValueError("operation must be one of: CREATE, UPDATE, DELETE")
+
+        # Build WHERE clause dynamically
+        where_clauses = []
+        params = []
+
+        if changed_by:
+            where_clauses.append("changed_by ILIKE %s")
+            params.append(f"%{changed_by}%")
+
+        if operation:
+            where_clauses.append("operation = %s")
+            params.append(operation)
+
+        if table_name:
+            where_clauses.append("table_name = %s")
+            params.append(table_name)
+
+        if record_id is not None:
+            where_clauses.append("record_id = %s")
+            params.append(record_id)
+
+        if start_date:
+            where_clauses.append("changed_at >= %s")
+            params.append(start_date)
+
+        if end_date:
+            where_clauses.append("changed_at <= %s")
+            params.append(end_date)
+
+        where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+        cursor = conn.cursor()
+
+        # Get total count
+        count_query = f"SELECT COUNT(*) FROM config_audit_log {where_sql}"
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
+
+        # Get paginated results
+        data_query = f"""
+            SELECT
+                id,
+                changed_at,
+                changed_by,
+                operation,
+                table_name,
+                record_id,
+                old_values,
+                new_values,
+                reason,
+                correlation_id
+            FROM config_audit_log
+            {where_sql}
+            ORDER BY changed_at DESC
+            LIMIT %s OFFSET %s
+        """
+        cursor.execute(data_query, params + [limit, offset])
+
+        columns = [desc[0] for desc in cursor.description]
+        results = []
+
+        for row in cursor.fetchall():
+            record = dict(zip(columns, row))
+            # Parse JSON fields
+            if record['old_values']:
+                record['old_values'] = json.loads(record['old_values'])
+            if record['new_values']:
+                record['new_values'] = json.loads(record['new_values'])
+            results.append(record)
+
+        return {
+            "logs": results,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit if total > 0 else 0
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to query audit logs: {e}", exc_info=True)
+        raise AuditLogError(f"Failed to query audit logs: {e}") from e
+
+    finally:
+        cursor.close()
+
+
 if __name__ == "__main__":
     # Example usage (requires database connection)
     print("MUTT v2.5 Audit Logger")
     print("=" * 60)
     print("\nThis module provides audit logging for configuration changes.")
     print("\nUsage:")
-    print("  from audit_logger import log_config_change")
+    print("  from audit_logger import log_config_change, query_audit_logs")
     print("\nSee module docstring for examples.")

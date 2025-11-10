@@ -65,9 +65,24 @@ if True:
   
   # Audit logger for configuration changes (optional import)
   try:
-      from audit_logger import log_config_change  # type: ignore
+      from audit_logger import log_config_change, query_audit_logs  # type: ignore
   except Exception:  # pragma: no cover - optional import safety
       log_config_change = None  # type: ignore
+      query_audit_logs = None  # type: ignore
+
+  # API Versioning (Phase 4.2)
+  try:
+      from api_versioning import (  # type: ignore
+          add_version_headers,
+          get_version_info,
+          get_api_version,
+          versioned_endpoint
+      )
+  except Exception:  # pragma: no cover - optional import safety
+      add_version_headers = None  # type: ignore
+      get_version_info = None  # type: ignore
+      get_api_version = None  # type: ignore
+      versioned_endpoint = None  # type: ignore
 
   # SLO Definitions (Phase 3)
   try:
@@ -563,7 +578,7 @@ def create_app() -> Flask:
 
       @app.after_request
       def log_request(response):
-          """Log request after processing."""
+          """Log request after processing and add version headers."""
           if hasattr(request, 'start_time'):
               duration = time.time() - request.start_time
               logger.info(
@@ -571,6 +586,12 @@ def create_app() -> Flask:
                   f"Status: {response.status_code} - "
                   f"Duration: {duration:.3f}s"
               )
+
+          # Add API version headers to all responses (Phase 4.2)
+          if add_version_headers is not None and request.path.startswith('/api/'):
+              endpoint_meta = getattr(request, 'endpoint_metadata', None)
+              response = add_version_headers(response, endpoint_meta)
+
           return response
 
       # ================================================================
@@ -622,6 +643,12 @@ def create_app() -> Flask:
       def index():
           """Serves the real-time metrics dashboard."""
           return render_template_string(HTML_DASHBOARD)
+
+      @app.route('/audit', methods=['GET'])
+      @require_api_key
+      def audit_viewer():
+          """Serves the configuration audit log viewer."""
+          return render_template_string(HTML_AUDIT_VIEWER)
 
       # ================================================================
       # METRICS API
@@ -1081,6 +1108,36 @@ def create_app() -> Flask:
 
               conn.commit()
 
+              # Audit log the rule creation
+              if log_config_change is not None:
+                  try:
+                      api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or 'unknown'
+                      changed_by = f"webui_api:{api_key[:8]}"
+                      new_values = {
+                          'match_string': data.get('match_string'),
+                          'trap_oid': data.get('trap_oid'),
+                          'syslog_severity': data.get('syslog_severity'),
+                          'match_type': data.get('match_type', 'contains'),
+                          'priority': data.get('priority', 100),
+                          'prod_handling': data['prod_handling'],
+                          'dev_handling': data['dev_handling'],
+                          'team_assignment': data['team_assignment'],
+                          'is_active': data.get('is_active', True)
+                      }
+                      log_config_change(
+                          conn=conn,
+                          changed_by=changed_by,
+                          operation='CREATE',
+                          table_name='alert_rules',
+                          record_id=new_id,
+                          new_values=new_values,
+                          reason=data.get('reason'),
+                          correlation_id=getattr(request, 'correlation_id', None)
+                      )
+                  except Exception as e:
+                      # Audit logging failure should not block the operation
+                      logger.error(f"Audit log failed for rule creation {new_id}: {e}", exc_info=True)
+
               logger.info(f"Created new rule with ID {new_id}")
               return jsonify({"id": new_id, "message": "Rule created successfully"}), 201
 
@@ -1104,6 +1161,17 @@ def create_app() -> Flask:
           try:
               data = request.get_json()
               conn = db_pool.getconn()
+
+              # Fetch old values for audit log
+              old_values = None
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                  cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (rule_id,))
+                  old_record = cursor.fetchone()
+                  if old_record:
+                      old_values = dict(old_record)
+
+              if not old_values:
+                  return jsonify({"error": "Rule not found"}), 404
 
               # Build dynamic UPDATE query
               update_fields = []
@@ -1129,6 +1197,35 @@ def create_app() -> Flask:
 
               conn.commit()
 
+              # Audit log the rule update
+              if log_config_change is not None:
+                  try:
+                      api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or 'unknown'
+                      changed_by = f"webui_api:{api_key[:8]}"
+
+                      # Extract only the fields that were changed for new_values
+                      new_values = {field: data[field] for field in data.keys()
+                                   if field in ['match_string', 'trap_oid', 'syslog_severity', 'match_type',
+                                               'priority', 'prod_handling', 'dev_handling', 'team_assignment', 'is_active']}
+
+                      # Extract only the changed fields from old_values
+                      old_values_filtered = {field: old_values[field] for field in new_values.keys()}
+
+                      log_config_change(
+                          conn=conn,
+                          changed_by=changed_by,
+                          operation='UPDATE',
+                          table_name='alert_rules',
+                          record_id=rule_id,
+                          old_values=old_values_filtered,
+                          new_values=new_values,
+                          reason=data.get('reason'),
+                          correlation_id=getattr(request, 'correlation_id', None)
+                      )
+                  except Exception as e:
+                      # Audit logging failure should not block the operation
+                      logger.error(f"Audit log failed for rule update {rule_id}: {e}", exc_info=True)
+
               logger.info(f"Updated rule {rule_id}")
               return jsonify({"message": "Rule updated successfully"})
 
@@ -1152,6 +1249,18 @@ def create_app() -> Flask:
           try:
               conn = db_pool.getconn()
 
+              # Fetch old values for audit log before deletion
+              old_values = None
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                  cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (rule_id,))
+                  old_record = cursor.fetchone()
+                  if old_record:
+                      old_values = dict(old_record)
+
+              if not old_values:
+                  return jsonify({"error": "Rule not found"}), 404
+
+              # Perform the deletion
               with conn.cursor() as cursor:
                   cursor.execute("DELETE FROM alert_rules WHERE id = %s", (rule_id,))
 
@@ -1159,6 +1268,39 @@ def create_app() -> Flask:
                       return jsonify({"error": "Rule not found"}), 404
 
               conn.commit()
+
+              # Audit log the rule deletion
+              if log_config_change is not None:
+                  try:
+                      api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or 'unknown'
+                      changed_by = f"webui_api:{api_key[:8]}"
+
+                      # Extract relevant fields for audit log
+                      old_values_filtered = {
+                          'match_string': old_values.get('match_string'),
+                          'trap_oid': old_values.get('trap_oid'),
+                          'syslog_severity': old_values.get('syslog_severity'),
+                          'match_type': old_values.get('match_type'),
+                          'priority': old_values.get('priority'),
+                          'prod_handling': old_values.get('prod_handling'),
+                          'dev_handling': old_values.get('dev_handling'),
+                          'team_assignment': old_values.get('team_assignment'),
+                          'is_active': old_values.get('is_active')
+                      }
+
+                      log_config_change(
+                          conn=conn,
+                          changed_by=changed_by,
+                          operation='DELETE',
+                          table_name='alert_rules',
+                          record_id=rule_id,
+                          old_values=old_values_filtered,
+                          reason=request.get_json(silent=True).get('reason') if request.get_json(silent=True) else None,
+                          correlation_id=getattr(request, 'correlation_id', None)
+                      )
+                  except Exception as e:
+                      # Audit logging failure should not block the operation
+                      logger.error(f"Audit log failed for rule deletion {rule_id}: {e}", exc_info=True)
 
               logger.info(f"Deleted rule {rule_id}")
               return jsonify({"message": "Rule deleted successfully"})
@@ -1176,6 +1318,75 @@ def create_app() -> Flask:
       # ================================================================
       # AUDIT LOG API
       # ================================================================
+
+      @app.route('/api/v1/audit', methods=['GET'])
+      @require_api_key
+      def get_config_audit_logs():
+          """
+          Get configuration change audit logs with advanced filtering.
+
+          Query parameters:
+          - changed_by: Filter by user/API key (partial match)
+          - operation: Filter by operation (CREATE, UPDATE, DELETE)
+          - table_name: Filter by table name (e.g., 'alert_rules', 'dynamic_config')
+          - record_id: Filter by specific record ID
+          - start_date: Filter by start date (ISO format)
+          - end_date: Filter by end date (ISO format)
+          - page: Page number (default: 1)
+          - limit: Items per page (default: 50, max: 200)
+          """
+          if query_audit_logs is None:
+              return jsonify({"error": "Audit logging not available"}), 503
+
+          db_pool = app.config['DB_POOL']
+          conn = None
+
+          with METRIC_API_LATENCY.labels(endpoint='audit').time():
+              try:
+                  # Extract query parameters
+                  changed_by = request.args.get('changed_by')
+                  operation = request.args.get('operation')
+                  table_name = request.args.get('table_name')
+                  record_id = request.args.get('record_id')
+                  start_date = request.args.get('start_date')
+                  end_date = request.args.get('end_date')
+                  page = max(1, safe_int(request.args.get('page'), 1))
+                  limit = min(200, max(1, safe_int(request.args.get('limit'), 50)))
+
+                  # Convert record_id to int if provided
+                  record_id_int = safe_int(record_id) if record_id else None
+
+                  conn = db_pool.getconn()
+
+                  # Call the query_audit_logs function
+                  result = query_audit_logs(
+                      conn=conn,
+                      changed_by=changed_by,
+                      operation=operation,
+                      table_name=table_name,
+                      record_id=record_id_int,
+                      start_date=start_date,
+                      end_date=end_date,
+                      page=page,
+                      limit=limit
+                  )
+
+                  METRIC_API_REQUESTS_TOTAL.labels(endpoint='audit', status='success').inc()
+                  return jsonify(result)
+
+              except ValueError as e:
+                  logger.warning(f"Invalid parameters for audit log query: {e}")
+                  METRIC_API_REQUESTS_TOTAL.labels(endpoint='audit', status='error_invalid').inc()
+                  return jsonify({"error": str(e)}), 400
+
+              except Exception as e:
+                  logger.error(f"Error fetching audit logs: {e}", exc_info=True)
+                  METRIC_API_REQUESTS_TOTAL.labels(endpoint='audit', status='error').inc()
+                  return jsonify({"error": str(e)}), 500
+
+              finally:
+                  if conn:
+                      db_pool.putconn(conn)
 
       @app.route('/api/v1/audit-logs', methods=['GET'])
       @require_api_key
@@ -1777,6 +1988,486 @@ HTML_DASHBOARD = """
   </body>
   </html>
   """
+
+HTML_AUDIT_VIEWER = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MUTT Configuration Audit Log</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --card-color: #2c2c2c;
+            --text-color: #f0f0f0;
+            --accent-color: #00bcd4;
+            --success-color: #4caf50;
+            --warning-color: #ff9800;
+            --error-color: #f44336;
+            --border-color: #444;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 24px;
+        }
+
+        h1 {
+            color: var(--accent-color);
+            text-align: center;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--text-color);
+            opacity: 0.6;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .filters {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto 20px auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .filter-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-field label {
+            font-size: 12px;
+            color: var(--text-color);
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+
+        .filter-field input,
+        .filter-field select {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-color);
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background-color: var(--border-color);
+            color: var(--text-color);
+        }
+
+        .table-container {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto 20px auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background-color: var(--bg-color);
+            color: var(--accent-color);
+            padding: 12px;
+            text-align: left;
+            font-weight: 500;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tr:hover {
+            background-color: rgba(0, 188, 212, 0.05);
+        }
+
+        .operation-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .operation-CREATE {
+            background-color: var(--success-color);
+            color: #fff;
+        }
+
+        .operation-UPDATE {
+            background-color: var(--warning-color);
+            color: #fff;
+        }
+
+        .operation-DELETE {
+            background-color: var(--error-color);
+            color: #fff;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .pagination button {
+            padding: 8px 12px;
+        }
+
+        .pagination span {
+            color: var(--text-color);
+            opacity: 0.7;
+        }
+
+        .details-cell {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .details-cell:hover {
+            color: var(--accent-color);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-color);
+            opacity: 0.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--accent-color);
+        }
+
+        .error {
+            text-align: center;
+            padding: 20px;
+            color: var(--error-color);
+            background-color: rgba(244, 67, 54, 0.1);
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        pre {
+            background-color: var(--bg-color);
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Configuration Audit Log</h1>
+    <div class="subtitle">Track all configuration changes with complete audit trails</div>
+
+    <div class="filters">
+        <div class="filter-grid">
+            <div class="filter-field">
+                <label>User/API Key</label>
+                <input type="text" id="filter-user" placeholder="e.g., webui_api">
+            </div>
+            <div class="filter-field">
+                <label>Operation</label>
+                <select id="filter-operation">
+                    <option value="">All Operations</option>
+                    <option value="CREATE">CREATE</option>
+                    <option value="UPDATE">UPDATE</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>Table</label>
+                <select id="filter-table">
+                    <option value="">All Tables</option>
+                    <option value="alert_rules">Alert Rules</option>
+                    <option value="dynamic_config">Dynamic Config</option>
+                    <option value="development_hosts">Dev Hosts</option>
+                    <option value="device_teams">Device Teams</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>Record ID</label>
+                <input type="number" id="filter-record-id" placeholder="e.g., 42">
+            </div>
+            <div class="filter-field">
+                <label>Start Date</label>
+                <input type="datetime-local" id="filter-start-date">
+            </div>
+            <div class="filter-field">
+                <label>End Date</label>
+                <input type="datetime-local" id="filter-end-date">
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button class="btn-secondary" onclick="clearFilters()">Clear</button>
+            <button class="btn-primary" onclick="applyFilters()">Apply Filters</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div id="loading" class="loading" style="display: none;">Loading audit logs...</div>
+        <div id="error" class="error" style="display: none;"></div>
+
+        <table id="audit-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Operation</th>
+                    <th>Table</th>
+                    <th>Record ID</th>
+                    <th>Changes</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody id="audit-tbody">
+            </tbody>
+        </table>
+
+        <div id="empty-state" class="empty-state" style="display: none;">
+            No audit logs found matching your filters.
+        </div>
+
+        <div class="pagination" id="pagination" style="display: none;">
+            <button class="btn-secondary" onclick="previousPage()" id="btn-prev">Previous</button>
+            <span id="page-info">Page 1 of 1</span>
+            <button class="btn-secondary" onclick="nextPage()" id="btn-next">Next</button>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentFilters = {};
+
+        async function loadAuditLogs(page = 1) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const apiKey = urlParams.get('api_key');
+
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const table = document.getElementById('audit-table');
+            const emptyState = document.getElementById('empty-state');
+            const pagination = document.getElementById('pagination');
+
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            table.style.display = 'none';
+            emptyState.style.display = 'none';
+            pagination.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams({
+                    api_key: apiKey,
+                    page: page,
+                    limit: 20,
+                    ...currentFilters
+                });
+
+                const response = await fetch(`/api/v1/audit?${params}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                loading.style.display = 'none';
+
+                if (data.logs.length === 0) {
+                    emptyState.style.display = 'block';
+                    return;
+                }
+
+                renderAuditLogs(data.logs);
+                renderPagination(data.pagination);
+
+                table.style.display = 'table';
+                pagination.style.display = 'flex';
+
+            } catch (err) {
+                loading.style.display = 'none';
+                error.textContent = `Failed to load audit logs: ${err.message}`;
+                error.style.display = 'block';
+            }
+        }
+
+        function renderAuditLogs(logs) {
+            const tbody = document.getElementById('audit-tbody');
+            tbody.innerHTML = '';
+
+            logs.forEach(log => {
+                const row = document.createElement('tr');
+
+                const timestamp = new Date(log.changed_at).toLocaleString();
+                const changesPreview = getChangesPreview(log);
+
+                row.innerHTML = `
+                    <td>${timestamp}</td>
+                    <td>${escapeHtml(log.changed_by)}</td>
+                    <td><span class="operation-badge operation-${log.operation}">${log.operation}</span></td>
+                    <td>${escapeHtml(log.table_name)}</td>
+                    <td>${log.record_id}</td>
+                    <td class="details-cell" onclick="showDetails(${log.id})" title="Click to view full details">${changesPreview}</td>
+                    <td>${escapeHtml(log.reason || '-')}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function getChangesPreview(log) {
+            if (log.operation === 'CREATE') {
+                const keys = Object.keys(log.new_values || {});
+                return `Created with ${keys.length} fields`;
+            } else if (log.operation === 'UPDATE') {
+                const keys = Object.keys(log.new_values || {});
+                return `Updated ${keys.length} field(s)`;
+            } else if (log.operation === 'DELETE') {
+                return 'Record deleted';
+            }
+            return '-';
+        }
+
+        function showDetails(logId) {
+            alert(`Detail view for log ID ${logId} would show full old/new values. This can be enhanced with a modal.`);
+        }
+
+        function renderPagination(paginationData) {
+            currentPage = paginationData.page;
+            totalPages = paginationData.pages;
+
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('btn-prev').disabled = currentPage === 1;
+            document.getElementById('btn-next').disabled = currentPage === totalPages;
+        }
+
+        function applyFilters() {
+            const filters = {};
+
+            const user = document.getElementById('filter-user').value.trim();
+            if (user) filters.changed_by = user;
+
+            const operation = document.getElementById('filter-operation').value;
+            if (operation) filters.operation = operation;
+
+            const table = document.getElementById('filter-table').value;
+            if (table) filters.table_name = table;
+
+            const recordId = document.getElementById('filter-record-id').value.trim();
+            if (recordId) filters.record_id = recordId;
+
+            const startDate = document.getElementById('filter-start-date').value;
+            if (startDate) filters.start_date = new Date(startDate).toISOString();
+
+            const endDate = document.getElementById('filter-end-date').value;
+            if (endDate) filters.end_date = new Date(endDate).toISOString();
+
+            currentFilters = filters;
+            currentPage = 1;
+            loadAuditLogs(currentPage);
+        }
+
+        function clearFilters() {
+            document.getElementById('filter-user').value = '';
+            document.getElementById('filter-operation').value = '';
+            document.getElementById('filter-table').value = '';
+            document.getElementById('filter-record-id').value = '';
+            document.getElementById('filter-start-date').value = '';
+            document.getElementById('filter-end-date').value = '';
+            currentFilters = {};
+            currentPage = 1;
+            loadAuditLogs(currentPage);
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadAuditLogs(currentPage);
+            }
+        }
+
+        function nextPage() {
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadAuditLogs(currentPage);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAuditLogs(1);
+        });
+    </script>
+</body>
+</html>
+"""
 
   # =====================================================================
   # MAIN ENTRY POINT
