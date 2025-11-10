@@ -323,6 +323,58 @@ services:
     networks:
       - mutt-network
 
+  remediation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remediation
+    container_name: mutt-remediation
+    ports:
+      - "8086:8086"  # Metrics
+      - "8087:8087"  # Health
+    environment:
+      # Service Config
+      POD_NAME: remediation-001
+      METRICS_PORT_REMEDIATION: 8086
+      HEALTH_PORT_REMEDIATION: 8087
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # DLQ Config
+      ALERTER_DLQ_NAME: mutt:dlq:alerter
+      INGEST_QUEUE_NAME: mutt:ingest_queue
+      DEAD_LETTER_QUEUE: mutt:dlq:dead
+
+      # Remediation Config
+      REMEDIATION_ENABLED: "true"
+      REMEDIATION_INTERVAL: 300  # 5 minutes
+      REMEDIATION_BATCH_SIZE: 10
+      MAX_POISON_RETRIES: 3
+
+      # Moogsoft Health Check
+      MOOG_HEALTH_CHECK_ENABLED: "true"
+      MOOG_WEBHOOK_URL: http://mock-moog:8888/webhook
+      MOOG_HEALTH_TIMEOUT: 5
+
+      # Dynamic Config
+      DYNAMIC_CONFIG_ENABLED: "false"
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8087/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mutt-network
+
   # =================================================================
   # Mock Services (for testing)
   # =================================================================

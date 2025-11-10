@@ -6,7 +6,11 @@
       "Bash(venv310/Scripts/python.exe -m pytest tests/test_logging_utils.py -v --tb=short)",
       "Bash(venv310/Scripts/python.exe -m pytest:*)",
       "Bash(venv310/Scripts/python.exe:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(move test_alerter_backpressure_unit.py test_alerter_backpressure_unit.py.SKIP)",
+      "Bash(ren:*)",
+      "Bash(cat:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

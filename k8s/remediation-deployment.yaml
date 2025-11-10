@@ -1,0 +1,222 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-remediation
+  namespace: mutt
+  labels:
+    app: mutt
+    component: remediation
+    version: v2.5
+spec:
+  replicas: 1  # Single instance to avoid race conditions on DLQ
+  strategy:
+    type: Recreate  # Ensure only one instance at a time
+  selector:
+    matchLabels:
+      app: mutt
+      component: remediation
+  template:
+    metadata:
+      labels:
+        app: mutt
+        component: remediation
+        version: v2.5
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8086"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: mutt-remediation
+      containers:
+      - name: remediation
+        image: mutt/remediation:2.5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: metrics
+          containerPort: 8086
+          protocol: TCP
+        - name: health
+          containerPort: 8087
+          protocol: TCP
+        env:
+        # Service Identity
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: METRICS_PORT_REMEDIATION
+          value: "8086"
+        - name: HEALTH_PORT_REMEDIATION
+          value: "8087"
+
+        # Redis Connection
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: redis.host
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: redis.port
+        - name: REDIS_DB
+          value: "0"
+
+        # DLQ Configuration
+        - name: ALERTER_DLQ_NAME
+          value: "mutt:dlq:alerter"
+        - name: INGEST_QUEUE_NAME
+          value: "mutt:ingest_queue"
+        - name: DEAD_LETTER_QUEUE
+          value: "mutt:dlq:dead"
+
+        # Remediation Configuration
+        - name: REMEDIATION_ENABLED
+          value: "true"
+        - name: REMEDIATION_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: remediation.interval
+              optional: true
+        - name: REMEDIATION_BATCH_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: remediation.batch_size
+              optional: true
+        - name: MAX_POISON_RETRIES
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: remediation.max_poison_retries
+              optional: true
+
+        # Moogsoft Health Check
+        - name: MOOG_HEALTH_CHECK_ENABLED
+          value: "true"
+        - name: MOOG_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: mutt-secrets
+              key: moog.webhook.url
+        - name: MOOG_HEALTH_TIMEOUT
+          value: "5"
+
+        # Dynamic Config
+        - name: DYNAMIC_CONFIG_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: mutt-config
+              key: dynamic.config.enabled
+              optional: true
+
+        # Logging & Observability
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: LOG_JSON_ENABLED
+          value: "true"
+        - name: OTEL_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "remediation"
+        - name: SERVICE_VERSION
+          value: "2.5.0"
+
+        # Resource Limits
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+
+        # Health Checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Security Context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+
+      # Pod-level settings
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-remediation
+  namespace: mutt
+  labels:
+    app: mutt
+    component: remediation
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 8086
+    targetPort: metrics
+    protocol: TCP
+  - name: health
+    port: 8087
+    targetPort: health
+    protocol: TCP
+  selector:
+    app: mutt
+    component: remediation
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mutt-remediation
+  namespace: mutt
+  labels:
+    app: mutt
+    component: remediation
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mutt-remediation-pdb
+  namespace: mutt
+spec:
+  minAvailable: 0  # Allow disruption since we only have 1 replica
+  selector:
+    matchLabels:
+      app: mutt
+      component: remediation
