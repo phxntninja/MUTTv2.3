@@ -880,6 +880,30 @@ def create_app() -> Flask:
                   db_pool.putconn(conn)
 
       # ================================================================
+      # API VERSION ENDPOINT (Phase 4.2)
+      # ================================================================
+
+      @app.route('/api/v1/version', methods=['GET'])
+      def get_version():
+          """
+          Get API version information.
+
+          Returns comprehensive version metadata including current version,
+          supported versions, and version history with changelogs.
+
+          This endpoint does not require authentication.
+          """
+          if get_version_info is None:
+              return jsonify({"error": "Versioning not available"}), 503
+
+          try:
+              version_info = get_version_info()
+              return jsonify(version_info)
+          except Exception as e:
+              logger.error(f"Error retrieving version info: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+      # ================================================================
       # ALERT RULES CRUD API
       # ================================================================
 
@@ -1321,6 +1345,7 @@ def create_app() -> Flask:
 
       @app.route('/api/v1/audit', methods=['GET'])
       @require_api_key
+      @versioned_endpoint(since='2.0') if versioned_endpoint else lambda f: f
       def get_config_audit_logs():
           """
           Get configuration change audit logs with advanced filtering.
