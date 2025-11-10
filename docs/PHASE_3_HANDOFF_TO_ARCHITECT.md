@@ -5,6 +5,9 @@ Owner: Codex
 
 ## Executive Summary
 
+Note for Architect
+- Please conduct your review using the chunked protocol in `docs/ARCHITECT_STATUS_FOR_GEMINI.md`. It specifies the exact reading order, output limits, and micro-prompts to avoid context overflows.
+
 Phase 3 objectives are complete: the alerter has canonicalized paths and backpressure controls, the Web UI exposes SLOs backed by Prometheus, deployments and documentation are aligned, and unit tests cover the new behaviors. This package is ready for coordinator/architect review and integration into the broader program plan.
 
 ---
@@ -146,4 +149,3 @@ Phase 3 objectives are complete: the alerter has canonicalized paths and backpre
 
 - Engineering (Codex): Phase 3 implementation, tests, docs.
 - Coordinator/Architect: Please review breaking changes, SLO approach, and backpressure policies; advise on org-wide dashboard/alert migration plan.
-

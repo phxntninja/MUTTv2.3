@@ -203,7 +203,8 @@
 1. Read `CURRENT_PLAN.md`
 2. Read this status file
 3. See `docs/PHASE_3_HANDOFF_TO_ARCHITECT.md`
-4. Check `V2.5_TASK_TRACKER.md` (legacy tracker; not authoritative)
+4. For Architect review protocol, see `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
+5. Check `V2.5_TASK_TRACKER.md` (legacy tracker; not authoritative)
 
 ---
 

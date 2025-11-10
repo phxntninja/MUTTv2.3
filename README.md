@@ -1025,7 +1025,11 @@ See `docs/observability.md` for OpenTelemetry configuration: running without a b
 - Test hardening and improved reliability around Redis/Postgres connections
 
 More details:
-- Handoff: `docs/PHASE_2_HANDOFF.md`
+- Current plan: `CURRENT_PLAN.md`
+- Phase 3 handoff (canonical): `docs/PHASE_3_HANDOFF_TO_ARCHITECT.md`
+- Alerter backpressure guide: `docs/ALERTER_BACKPRESSURE.md`
+- SLOs guide and API: `docs/SLOs.md`
+- Architect status & review protocol: `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
 - Feature matrix: `docs/FEATURE_MATRIX.md`
 - Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
 
