@@ -360,14 +360,32 @@ def _get_unhandled_expiry(config: "Config") -> int:
     return _dyn_get_int('unhandled_expiry_seconds', config.UNHANDLED_EXPIRY_SECONDS)
 
 
+def _dyn_get_int_multi(keys: list[str], fallback: int) -> int:
+    """Try multiple dynamic config keys and return the first found as int.
+
+    Falls back to the provided default when no key is present or convertible.
+    """
+    for k in keys:
+        try:
+            if DYN_CONFIG:
+                v = DYN_CONFIG.get(k)
+                if v is not None:
+                    return int(v)
+        except Exception as e:  # pragma: no cover
+            logger.debug(f"DynamicConfig get failed for {k}: {e}")
+    return fallback
+
+
 def _get_alerter_queue_warn_threshold() -> int:
     """Returns the queue depth to start logging warnings."""
-    return _dyn_get_int('alerter_queue_warn', 1000)
+    # Support both new and legacy key names
+    return _dyn_get_int_multi(['alerter_queue_warn_threshold', 'alerter_queue_warn'], 1000)
 
 
 def _get_alerter_queue_shed_threshold() -> int:
     """Returns the queue depth to start shedding load."""
-    return _dyn_get_int('alerter_queue_shed', 2000)
+    # Support both new and legacy key names
+    return _dyn_get_int_multi(['alerter_queue_shed_threshold', 'alerter_queue_shed'], 2000)
 
 
 def _get_alerter_shed_mode() -> str:
@@ -1283,14 +1301,22 @@ def main():
                         f"SHEDDING LOAD: Queue depth ({queue_depth}) > threshold ({shed_threshold}). "
                         f"Mode: {shed_mode}"
                     )
-    
+
                     if shed_mode == 'dlq':
                         # Shed load by moving directly to DLQ without processing
                         shed_msg = redis_client.rpop(config.INGEST_QUEUE_NAME)
                         if shed_msg:
-                            redis_client.lpush(config.ALERTER_DLQ_NAME, shed_msg)
+                            enriched = shed_msg
+                            try:
+                                payload = json.loads(shed_msg)
+                                payload['shedding_reason'] = f"queue_depth_exceeded:{queue_depth}>{shed_threshold}"
+                                enriched = json.dumps(payload)
+                            except Exception:
+                                # If parsing fails, push the original message to avoid loss
+                                pass
+                            redis_client.lpush(config.ALERTER_DLQ_NAME, enriched)
                             METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='dlq').inc()
-                            logger.info(f"Moved event to DLQ: {shed_msg[:MESSAGE_PREVIEW_LENGTH]}")
+                            logger.info(f"Moved event to DLQ: {str(enriched)[:MESSAGE_PREVIEW_LENGTH]}")
                     
                     elif shed_mode == 'defer':
                         # Defer processing by sleeping

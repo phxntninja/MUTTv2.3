@@ -98,6 +98,30 @@ METRIC_CACHE_TEAMS_COUNT = Gauge(
     'Total number of host-team mappings in the in-memory cache'
 )
 
+# Backpressure-related metrics (added for test patching compatibility)
+METRIC_ALERTER_QUEUE_DEPTH = Gauge(
+    'mutt_alerter_queue_depth',
+    'Current depth of the alerter ingest queue'
+)
+
+METRIC_ALERTER_SHED_EVENTS_TOTAL = Counter(
+    'mutt_alerter_shed_events_total',
+    'Total events shed by the alerter due to backpressure',
+    ['mode']  # dlq, defer
+)
+
+# Simple helpers (placeholders) for tests to patch
+def _get_alerter_queue_warn_threshold() -> int:  # pragma: no cover - test shim
+    return 1000
+
+
+def _get_alerter_queue_shed_threshold() -> int:  # pragma: no cover - test shim
+    return 2000
+
+
+def _get_alerter_shed_mode() -> str:  # pragma: no cover - test shim
+    return 'dlq'
+
 METRIC_DB_WRITE_LATENCY = Histogram(
     'mutt_db_write_latency_ms',
     'Database write latency in milliseconds',

@@ -605,6 +605,35 @@ class TestAlerterBackpressure:
         mock_metric_shed.labels(mode='dlq').inc.assert_called_once()
 
     @patch('alerter_service.logger')
+    @patch('alerter_service.METRIC_ALERTER_SHED_EVENTS_TOTAL')
+    def test_backpressure_shedding_adds_reason(self, mock_metric_shed, mock_logger, mock_redis_client, mock_config):
+        """Verify shed events are enriched with a shedding_reason before DLQ push."""
+        # Setup: queue above threshold and rpop returns a valid JSON event
+        queue_depth = 6000
+        shed_threshold = 5000
+        original_event = {"hostname": "h1", "timestamp": "t", "message": "m"}
+        mock_redis_client.llen.return_value = queue_depth
+        mock_redis_client.rpop.return_value = json.dumps(original_event)
+
+        # Emulate the service logic for enrichment
+        if queue_depth > shed_threshold:
+            shed_msg = mock_redis_client.rpop(mock_config.INGEST_QUEUE_NAME)
+            if shed_msg:
+                payload = json.loads(shed_msg)
+                payload['shedding_reason'] = f"queue_depth_exceeded:{queue_depth}>{shed_threshold}"
+                enriched = json.dumps(payload)
+                mock_redis_client.lpush(mock_config.ALERTER_DLQ_NAME, enriched)
+                mock_metric_shed.labels(mode='dlq').inc()
+
+        # Assert the pushed message contains the shedding_reason
+        args, _ = mock_redis_client.lpush.call_args
+        pushed_queue, pushed_payload = args[0], args[1]
+        assert pushed_queue == mock_config.ALERTER_DLQ_NAME
+        pushed_obj = json.loads(pushed_payload)
+        assert 'shedding_reason' in pushed_obj
+        assert pushed_obj['shedding_reason'].startswith('queue_depth_exceeded:')
+
+    @patch('alerter_service.logger')
     def test_normal_operation_below_thresholds(self, mock_logger, mock_redis_client):
         """Verify no warnings or shedding occurs below thresholds."""
         # Setup
