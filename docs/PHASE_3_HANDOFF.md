@@ -20,7 +20,7 @@ Goal: Protect the system under load by shedding work and avoiding persistent bac
 Tasks
 - 3.1.1 Queue depth monitors in Alerter
   - Implement Redis queue depth checks with thresholds (warn, shed).
-  - DynamicConfig keys: `alerter_queue_warn`, `alerter_queue_shed`, `alerter_max_processing_depth`.
+  - DynamicConfig keys: `alerter_queue_warn_threshold`, `alerter_queue_shed_threshold`, `alerter_shed_mode`, `alerter_defer_sleep_ms`.
   - Prometheus metrics: `mutt_alerter_queue_depth`, `mutt_alerter_shed_events_total`.
 - 3.1.2 Shedding strategy
   - When depth exceeds shed threshold: either short‑circuit to DLQ or temporary 429‑style deferral (configurable: `alerter_shed_mode = dlq|defer`).
@@ -152,4 +152,3 @@ Acceptance Criteria
 - All changes should keep style and metrics conventions established in v2.3–v2.5.
 - Prefer DynamicConfig for tuning; static envs for URLs and identities (per Gemini decisions).
 - Keep patches focused; run the suite once per batch of related changes.
-

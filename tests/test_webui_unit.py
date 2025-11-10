@@ -10,6 +10,119 @@ from unittest.mock import Mock, MagicMock, patch
 import json
 import time
 import secrets as secrets_module
+import types
+
+
+class TestSLOEndpoint:
+    """Tests for /api/v1/slo endpoint (mocked Prometheus)."""
+
+    def _make_app(self, monkeypatch):
+        from services import web_ui_service as w
+
+        # Disable DynamicConfig to avoid Redis requirement
+        monkeypatch.setattr(w, 'DynamicConfig', None)
+
+        # Bypass Vault/Redis/Postgres initialization
+        def fake_fetch_secrets(app):
+            app.config['SECRETS'] = {"WEBUI_API_KEY": "test-api-key-123"}
+        monkeypatch.setattr(w, 'fetch_secrets', fake_fetch_secrets)
+        monkeypatch.setattr(w, 'create_redis_pool', lambda app: None)
+        monkeypatch.setattr(w, 'create_postgres_pool', lambda app: app.config.__setitem__('DB_POOL', None))
+
+        # Build app
+        app = w.create_app()
+        return app
+
+    def test_slo_ok_state(self, monkeypatch):
+        from services import web_ui_service as w
+
+        # Mock requests.get to return two success values (ingestor, forwarder)
+        class R:
+            def __init__(self, v):
+                self.status_code = 200
+                self._v = v
+            def json(self):
+                return {
+                    'status': 'success',
+                    'data': {'result': [{'value': ["0", str(self._v)]}]}
+                }
+        calls = []
+        def fake_get(url, params=None, timeout=5):
+            calls.append(params['query'])
+            # Return high availability above targets
+            return R(0.999)
+        monkeypatch.setattr(w.requests, 'get', fake_get)
+
+        app = self._make_app(monkeypatch)
+        client = app.test_client()
+        resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'components' in data
+        for comp in ['ingestor', 'forwarder']:
+            c = data['components'][comp]
+            assert c['state'] == 'ok'
+            assert 0 <= c['burn_rate'] <= 1.0
+
+    def test_slo_warn_and_critical_states(self, monkeypatch):
+        from services import web_ui_service as w
+
+        # Return warn for ingestor (burn_rate == 2), critical for forwarder (burn_rate > 2)
+        values = [0.990, 0.980]  # assuming targets 0.995 and 0.99
+        class R:
+            def __init__(self, v):
+                self.status_code = 200
+                self._v = v
+            def json(self):
+                return {
+                    'status': 'success',
+                    'data': {'result': [{'value': ["0", str(self._v)]}]}
+                }
+        def fake_get(url, params=None, timeout=5):
+            v = values.pop(0)
+            return R(v)
+        monkeypatch.setattr(w.requests, 'get', fake_get)
+
+        app = self._make_app(monkeypatch)
+        client = app.test_client()
+        resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['components']['ingestor']['state'] == 'warn'
+        assert data['components']['forwarder']['state'] == 'critical'
+
+    def test_slo_single_retry_on_failure(self, monkeypatch):
+        from services import web_ui_service as w
+
+        # First call fails (timeout), second call succeeds with good value for both queries
+        class R:
+            def __init__(self, v):
+                self.status_code = 200
+                self._v = v
+            def json(self):
+                return {
+                    'status': 'success',
+                    'data': {'result': [{'value': ["0", str(self._v)]}]}
+                }
+
+        calls = {'count': 0}
+        def flaky_get(url, params=None, timeout=5):
+            # Simulate failure only on the very first call, then success
+            if calls['count'] == 0:
+                calls['count'] += 1
+                raise TimeoutError("simulated timeout")
+            calls['count'] += 1
+            return R(0.999)
+
+        monkeypatch.setattr(w.requests, 'get', flaky_get)
+
+        app = self._make_app(monkeypatch)
+        client = app.test_client()
+        resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['components']['ingestor']['state'] == 'ok'
+        assert data['components']['forwarder']['state'] == 'ok'
 
 
 # Mark all tests in this file as unit tests

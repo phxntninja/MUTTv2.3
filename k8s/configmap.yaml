@@ -17,3 +17,4 @@ data:
   DB_TLS_ENABLED: "false"
   VAULT_ADDR: "http://vault:8200"
   VAULT_SECRETS_PATH: "secret/mutt/prod"
+  PROMETHEUS_URL: "http://prometheus:9090"

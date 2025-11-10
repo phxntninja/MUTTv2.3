@@ -68,7 +68,7 @@ if True:
   METRIC_INGEST_TOTAL = Counter(
       'mutt_ingest_requests_total',
       'Total requests to the ingest endpoint',
-      ['status']  # success, fail_auth, fail_json, fail_validation, fail_queue_full, fail_redis
+      ['status', 'reason']  # status: success|fail, reason: auth|json|validation|queue_full|redis|rate_limit|unknown|''
   )
 
   METRIC_QUEUE_DEPTH = Gauge(
@@ -503,7 +503,7 @@ if True:
 
           if not api_key or not secrets_module.compare_digest(api_key, expected_key):
               logger.warning(f"Authentication failed from {request.remote_addr}")
-              METRIC_INGEST_TOTAL.labels(status='fail_auth').inc()
+              METRIC_INGEST_TOTAL.labels(status='fail', reason='auth').inc()
               return jsonify({
                   "status": "error",
                   "message": "Unauthorized",
@@ -527,7 +527,7 @@ if True:
               redis_client = redis.Redis(connection_pool=app.redis_pool)
           except Exception as e:
               logger.error(f"Failed to get Redis connection from pool: {e}")
-              METRIC_INGEST_TOTAL.labels(status='fail_redis').inc()
+              METRIC_INGEST_TOTAL.labels(status='fail', reason='redis').inc()
               return jsonify({
                   "status": "error",
                   "message": "Service Unavailable - Redis pool error",
@@ -542,7 +542,7 @@ if True:
                   if not app.rate_limiter.is_allowed():
                       logger.warning("Rate limit exceeded")
                       METRIC_RATE_LIMIT_HITS.inc()
-                      METRIC_INGEST_TOTAL.labels(status='fail_rate_limit').inc()
+                      METRIC_INGEST_TOTAL.labels(status='fail', reason='rate_limit').inc()
                       return jsonify({
                           "status": "error",
                           "message": "Too Many Requests - rate limit exceeded",
@@ -564,7 +564,7 @@ if True:
 
               except Exception as e:
                   logger.warning(f"Invalid JSON received: {e}")
-                  METRIC_INGEST_TOTAL.labels(status='fail_json').inc()
+                  METRIC_INGEST_TOTAL.labels(status='fail', reason='json').inc()
                   return jsonify({
                       "status": "error",
                       "message": f"Invalid JSON: {str(e)}",
@@ -582,7 +582,7 @@ if True:
 
                   if missing_fields:
                       logger.warning(f"Missing required fields: {missing_fields}")
-                      METRIC_INGEST_TOTAL.labels(status='fail_validation').inc()
+                      METRIC_INGEST_TOTAL.labels(status='fail', reason='validation').inc()
                       return jsonify({
                           "status": "error",
                           "message": f"Missing required fields: {missing_fields}",
@@ -606,7 +606,7 @@ if True:
                           f"Backpressure triggered: Queue full "
                           f"({queue_len}/{config['MAX_INGEST_QUEUE_SIZE']})"
                       )
-                      METRIC_INGEST_TOTAL.labels(status='fail_queue_full').inc()
+                      METRIC_INGEST_TOTAL.labels(status='fail', reason='queue_full').inc()
                       return jsonify({
                           "status": "error",
                           "message": "Service Unavailable - queue full",
@@ -617,7 +617,7 @@ if True:
 
               except redis.exceptions.RedisError as e:
                   logger.error(f"Redis error during queue check: {e}")
-                  METRIC_INGEST_TOTAL.labels(status='fail_redis').inc()
+                  METRIC_INGEST_TOTAL.labels(status='fail', reason='redis').inc()
                   return jsonify({
                       "status": "error",
                       "message": "Service Unavailable - Redis error",
@@ -657,7 +657,7 @@ if True:
 
                   # Success!
                   logger.info(f"Message queued successfully (queue depth: {queue_len + 1})")
-                  METRIC_INGEST_TOTAL.labels(status='success').inc()
+                  METRIC_INGEST_TOTAL.labels(status='success', reason='').inc()
 
                   return jsonify({
                       "status": "queued",
@@ -667,7 +667,7 @@ if True:
 
               except redis.exceptions.RedisError as e:
                   logger.error(f"Redis error during message push: {e}")
-                  METRIC_INGEST_TOTAL.labels(status='fail_redis').inc()
+                  METRIC_INGEST_TOTAL.labels(status='fail', reason='redis').inc()
                   return jsonify({
                       "status": "error",
                       "message": "Service Unavailable - Redis error",
@@ -677,7 +677,7 @@ if True:
           except Exception as e:
               # Catch-all for unexpected errors
               logger.error(f"Unhandled exception: {e}", exc_info=True)
-              METRIC_INGEST_TOTAL.labels(status='fail_unknown').inc()
+              METRIC_INGEST_TOTAL.labels(status='fail', reason='unknown').inc()
               return jsonify({
                   "status": "error",
                   "message": "Internal server error",

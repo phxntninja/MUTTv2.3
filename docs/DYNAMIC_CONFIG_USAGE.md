@@ -358,6 +358,23 @@ debug_mode = config.get('debug_mode', default='false').lower() == 'true'
 timeout = float(config.get('timeout_seconds', default='30.0'))
 ```
 
+---
+
+## Canonical Keys (v2.5)
+
+### Alerter Backpressure
+- `alerter_queue_warn_threshold` (int): Queue depth warning threshold. Default: 1000.
+- `alerter_queue_shed_threshold` (int): Queue depth shedding threshold. Default: 2000.
+- `alerter_shed_mode` (str): `dlq` or `defer`. Default: `dlq`.
+- `alerter_defer_sleep_ms` (int): Deferral sleep in milliseconds when `defer` is active. Default: 250.
+
+Breaking change: legacy aliases `alerter_queue_warn` and `alerter_queue_shed` are not supported in v2.5.
+
+### SLO (Web UI)
+- `slo_window_hours` (int): Evaluation window hours. Default: 24.
+- `slo_ingest_success_target` (float): Target success rate for ingestor. Default: 0.995.
+- `slo_forward_success_target` (float): Target success rate for forwarder. Default: 0.99.
+
 ### 3. Validate Changes
 
 Validate config before applying:

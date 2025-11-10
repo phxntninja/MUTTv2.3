@@ -305,6 +305,8 @@ services:
 
       # Caching
       METRICS_CACHE_TTL: 5
+      # Prometheus
+      PROMETHEUS_URL: http://prometheus:9090
 
       # Logging
       LOG_LEVEL: INFO

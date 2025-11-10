@@ -94,7 +94,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8082/health || exit 1
 
 # Run moog forwarder (long-running worker)
-CMD ["python3", "moog_forwarder_service.py"]
+CMD ["python3", "services/moog_forwarder_service.py"]
 
 # =====================================================================
 # Web UI Service
@@ -116,4 +116,4 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "web_ui_service:create_app()"]
+     "services.web_ui_service:create_app()"]

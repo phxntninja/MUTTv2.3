@@ -75,7 +75,7 @@ if True:
   METRIC_MOOG_REQUESTS_TOTAL = Counter(
       'mutt_moog_requests_total',
       'Total requests to Moogsoft webhook',
-      ['status']  # success, fail_rate_limit, fail_http, fail_retry_exhausted
+      ['status', 'reason']  # status: success|fail, reason: http|rate_limit|retry_exhausted|circuit_open|''
   )
 
   METRIC_MOOG_REQUEST_LATENCY = Histogram(
@@ -591,10 +591,10 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
     CorrelationID.set(correlation_id)
 
     # Phase 3A - Check circuit breaker state
-    if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+        if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
         if circuit_breaker.is_open():
             logger.warning("Circuit breaker is OPEN. Skipping Moogsoft request.")
-            METRIC_MOOG_REQUESTS_TOTAL.labels(status='circuit_open').inc()
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='circuit_open').inc()
             return (False, True, "Circuit breaker OPEN")
 
     try:
@@ -640,7 +640,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
         # Check response
         if response.status_code == 200 or response.status_code == 201:
             logger.info(f"Successfully sent alert to Moog (latency: {latency:.2f}s)")
-            METRIC_MOOG_REQUESTS_TOTAL.labels(status='success').inc()
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='success', reason='').inc()
 
             # Phase 3A - Record success in circuit breaker
             if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -651,7 +651,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
         elif response.status_code == 429:
             # Rate limited by Moog (shouldn't happen with our rate limiter)
             logger.warning(f"Moog rate limited us (429). Status: {response.status_code}")
-            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_rate_limit').inc()
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='rate_limit').inc()
 
             # Phase 3A - Record failure in circuit breaker
             if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -662,7 +662,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
         elif response.status_code >= 500:
             # Server error - retry
             logger.error(f"Moog server error: {response.status_code} - {response.text[:200]}")
-            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='http').inc()
 
             # Phase 3A - Record failure in circuit breaker
             if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -673,13 +673,13 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
         else:
             # Client error (4xx) - don't retry
             logger.error(f"Moog client error: {response.status_code} - {response.text[:200]}")
-            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='http').inc()
             # Don't record client errors in circuit breaker - not a service availability issue
             return (False, False, f"Moog client error: {response.status_code}")
 
     except requests.exceptions.Timeout:
         logger.error(f"Moog request timeout after {config.MOOG_WEBHOOK_TIMEOUT}s")
-        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='http').inc()
 
         # Phase 3A - Record failure in circuit breaker
         if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -689,7 +689,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
 
     except requests.exceptions.ConnectionError as e:
         logger.error(f"Moog connection error: {e}")
-        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='http').inc()
 
         # Phase 3A - Record failure in circuit breaker
         if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -699,7 +699,7 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
 
     except Exception as e:
         logger.error(f"Unexpected error sending to Moog: {e}", exc_info=True)
-        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='http').inc()
 
         # Phase 3A - Record failure in circuit breaker
         if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
@@ -761,7 +761,7 @@ def _map_severity(severity_str: str) -> int:
           )
           try:
               redis_client.lpush(config.MOOG_DLQ_NAME, alert_string)
-              METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_retry_exhausted').inc()
+              METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail', reason='retry_exhausted').inc()
               METRIC_ALERTS_PROCESSED_TOTAL.labels(status='dlq').inc()
 
               # Update DLQ depth metric
@@ -1252,7 +1252,7 @@ def _map_severity(severity_str: str) -> int:
   ---
   Prometheus Metrics
 
-  - mutt_moog_requests_total{status} - Total requests to Moog (success/fail_*)
+  - mutt_moog_requests_total{status,reason} - Total requests to Moog (status: success|fail; reason for failures)
   - mutt_moog_request_latency_seconds - Webhook latency
   - mutt_moog_dlq_depth - Dead letter queue depth
   - mutt_moog_processing_list_depth - This worker's processing list depth
