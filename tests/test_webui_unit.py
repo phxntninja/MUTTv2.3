@@ -597,3 +597,150 @@ class TestWebUIIntegration:
 # Run tests with: pytest tests/test_webui_unit.py -v
 # Run with coverage: pytest tests/test_webui_unit.py --cov=web_ui_service --cov-report=html
 # =====================================================================
+
+
+class TestDynamicConfigAPI:
+    """Tests for Web UI dynamic configuration endpoints"""
+
+    def _make_app(self, monkeypatch, mock_secrets):
+        import services.web_ui_service as webui
+
+        # Stub secrets fetch to avoid Vault
+        def fake_fetch_secrets(app):
+            app.config["SECRETS"] = dict(mock_secrets)
+        monkeypatch.setattr(webui, "fetch_secrets", fake_fetch_secrets)
+
+        # Stub Redis/DB pool creators
+        def fake_create_redis_pool(app):
+            class DummyPool: pass
+            app.redis_pool = DummyPool()
+        monkeypatch.setattr(webui, "create_redis_pool", fake_create_redis_pool)
+
+        def fake_create_postgres_pool(app):
+            class DummyPool:
+                def __init__(self):
+                    self._conn = None
+                def getconn(self):
+                    return self._conn
+                def putconn(self, _):
+                    return None
+            app.config['DB_POOL'] = DummyPool()
+        monkeypatch.setattr(webui, "create_postgres_pool", fake_create_postgres_pool)
+
+        # Fake DynamicConfig that records get/set
+        class FakeDyn:
+            def __init__(self, *_args, **_kwargs):
+                self.store = {"existing_key": "123"}
+            def start_watcher(self):
+                return None
+            def get_all(self):
+                return dict(self.store)
+            def get(self, key, default=None):
+                return self.store.get(key, default)
+            def set(self, key, value, notify=True):
+                self.store[key] = str(value)
+
+        monkeypatch.setattr(webui, "DynamicConfig", FakeDyn)
+
+        # Stub audit logger to capture calls
+        calls = {}
+        def fake_log_config_change(**kwargs):
+            calls["last"] = kwargs
+            return 1
+        monkeypatch.setattr(webui, "log_config_change", fake_log_config_change, raising=False)
+
+        app = webui.create_app()
+        app.testing = True
+        return app, calls
+
+    def test_get_config_returns_values(self, monkeypatch, mock_secrets):
+        app, _ = self._make_app(monkeypatch, mock_secrets)
+        client = app.test_client()
+        resp = client.get(
+            "/api/v1/config",
+            headers={"X-API-KEY": mock_secrets["WEBUI_API_KEY"]}
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert "config" in body
+        assert body["config"].get("existing_key") == "123"
+
+    def test_put_config_updates_and_audits(self, monkeypatch, mock_secrets):
+        app, calls = self._make_app(monkeypatch, mock_secrets)
+        client = app.test_client()
+        resp = client.put(
+            "/api/v1/config/new_key",
+            headers={
+                "X-API-KEY": mock_secrets["WEBUI_API_KEY"],
+                "Content-Type": "application/json"
+            },
+            data=json.dumps({"value": "xyz", "reason": "unit test"})
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["key"] == "new_key"
+        assert body["new_value"] == "xyz"
+        # Audit logger called
+        assert "last" in calls
+        audit = calls["last"]
+        assert audit["table_name"] == "dynamic_config"
+        assert audit["new_values"]["key"] == "new_key"
+        assert audit["new_values"]["value"] == "xyz"
+
+    def test_put_config_missing_value_400(self, monkeypatch, mock_secrets):
+        app, _ = self._make_app(monkeypatch, mock_secrets)
+        client = app.test_client()
+        resp = client.put(
+            "/api/v1/config/any",
+            headers={"X-API-KEY": mock_secrets["WEBUI_API_KEY"]},
+            data=json.dumps({}),
+            content_type="application/json"
+        )
+        assert resp.status_code == 400
+
+    def test_get_config_history_paginates(self, monkeypatch, mock_secrets):
+        import services.web_ui_service as webui
+        app, _ = self._make_app(monkeypatch, mock_secrets)
+
+        # Replace DB pool with a fake connection that returns count and rows
+        class FakeCursor:
+            def __init__(self):
+                self.phase = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return False
+            def execute(self, query, params=None):
+                self.phase += 1
+            def fetchone(self):
+                return (3,)
+            def fetchall(self):
+                return [
+                    {"id": 1, "operation": "CREATE", "table_name": "dynamic_config"},
+                    {"id": 2, "operation": "UPDATE", "table_name": "dynamic_config"}
+                ]
+
+        class FakeConn:
+            def cursor(self, *args, **kwargs):
+                return FakeCursor()
+            def commit(self):
+                return None
+            def rollback(self):
+                return None
+
+        class FakePool:
+            def getconn(self):
+                return FakeConn()
+            def putconn(self, _):
+                return None
+
+        app.config['DB_POOL'] = FakePool()
+        client = app.test_client()
+        resp = client.get(
+            "/api/v1/config/history?page=1&limit=2",
+            headers={"X-API-KEY": mock_secrets["WEBUI_API_KEY"]}
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert "history" in body and isinstance(body["history"], list)
+        assert body["pagination"]["total"] == 3

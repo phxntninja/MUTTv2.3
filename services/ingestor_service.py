@@ -661,6 +661,28 @@ if True:
                   "error": str(e)
               }), 503
 
+      @app.route('/admin/config', methods=['GET'])
+      def admin_config():
+          """Return current configuration values for debugging and verification."""
+          try:
+              static_cfg = app.config.get("CONFIG", {})
+              dyn = app.config.get("DYNAMIC_CONFIG")
+              dynamic_cfg = {}
+              if dyn is not None:
+                  try:
+                      dynamic_cfg = dyn.get_all()
+                  except Exception as e:
+                      logger.warning(f"Failed to read dynamic config for admin view: {e}")
+
+              return jsonify({
+                  "dynamic_config_enabled": dyn is not None,
+                  "static": static_cfg,
+                  "dynamic": dynamic_cfg
+              }), 200
+          except Exception as e:
+              logger.error(f"/admin/config failed: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
       @app.route('/', methods=['GET'])
       def index():
           """Service information endpoint."""

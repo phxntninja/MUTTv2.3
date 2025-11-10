@@ -53,6 +53,18 @@ if True:
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
   from typing import Any, Dict, Optional, Callable
+  
+  # Dynamic configuration (optional)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      DynamicConfig = None  # type: ignore
+  
+  # Audit logger for configuration changes (optional import)
+  try:
+      from audit_logger import log_config_change  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      log_config_change = None  # type: ignore
 
   # Phase 2 Observability (opt-in)
   try:
@@ -457,6 +469,18 @@ def create_app() -> Flask:
       create_redis_pool(app)
       create_postgres_pool(app)
 
+      # Initialize DynamicConfig if available (uses Redis pool)
+      if DynamicConfig is not None:
+          try:
+              dyn = DynamicConfig(redis.Redis(connection_pool=app.redis_pool), prefix="mutt:config")
+              dyn.start_watcher()
+              app.config["DYNAMIC_CONFIG"] = dyn
+              logger.info("DynamicConfig initialized for Web UI")
+          except Exception as e:
+              logger.warning(f"DynamicConfig initialization failed: {e}")
+      else:
+          logger.warning("DynamicConfig not available; config management API will be disabled")
+
       # Initialize Prometheus metrics (disable default path)
       PrometheusMetrics(app, path=None)
 
@@ -629,6 +653,149 @@ def create_app() -> Flask:
                   logger.error(f"Unhandled error in get_api_metrics: {e}", exc_info=True)
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='metrics', status='fail_unknown').inc()
                   return jsonify({"error": "Internal server error"}), 500
+
+      # ================================================================
+      # CONFIG MANAGEMENT API
+      # ================================================================
+
+      @app.route('/api/v1/config', methods=['GET'])
+      @require_api_key
+      def get_dynamic_config():
+          """List all dynamic configuration values."""
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return jsonify({"error": "Dynamic configuration not available"}), 503
+
+          try:
+              values = dyn.get_all()
+              return jsonify({"config": values})
+          except Exception as e:
+              logger.error(f"Failed to fetch dynamic config: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+      @app.route('/api/v1/config/<key>', methods=['PUT'])
+      @require_api_key
+      def update_dynamic_config(key: str):
+          """Update a specific dynamic configuration value and audit the change."""
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return jsonify({"error": "Dynamic configuration not available"}), 503
+
+          data = request.get_json(silent=True) or {}
+          if 'value' not in data:
+              return jsonify({"error": "Missing 'value' in request body"}), 400
+
+          new_value = str(data['value'])
+          reason = data.get('reason')
+
+          old_value = None
+          try:
+              try:
+                  old_value = dyn.get(key, default=None)
+              except Exception:
+                  old_value = None
+
+              dyn.set(key, new_value)
+
+              # Attempt to write audit log (best-effort)
+              if log_config_change is not None and 'DB_POOL' in app.config:
+                  db_pool = app.config['DB_POOL']
+                  conn = None
+                  try:
+                      conn = db_pool.getconn()
+                      api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or 'unknown'
+                      changed_by = f"webui_api:{api_key[:8]}"
+                      # Derive a stable positive int from the key for record_id
+                      record_id = abs(hash(key)) % 2147483647 or 1
+                      operation = 'UPDATE' if old_value is not None else 'CREATE'
+                      log_config_change(
+                          conn=conn,
+                          changed_by=changed_by,
+                          operation=operation,
+                          table_name='dynamic_config',
+                          record_id=record_id,
+                          old_values={"key": key, "value": old_value} if old_value is not None else None,
+                          new_values={"key": key, "value": new_value},
+                          reason=reason,
+                          correlation_id=getattr(request, 'correlation_id', None)
+                      )
+                  except Exception as e:
+                      if conn:
+                          try:
+                              conn.rollback()
+                          except Exception:
+                              pass
+                      logger.error(f"Audit log failed for config update {key}: {e}", exc_info=True)
+                  finally:
+                      if conn:
+                          db_pool.putconn(conn)
+
+              return jsonify({
+                  "key": key,
+                  "old_value": old_value,
+                  "new_value": new_value
+              })
+
+          except Exception as e:
+              logger.error(f"Failed to update dynamic config {key}: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+      @app.route('/api/v1/config/history', methods=['GET'])
+      @require_api_key
+      def get_dynamic_config_history():
+          """Return recent dynamic configuration change history from config_audit_log."""
+          if 'DB_POOL' not in app.config:
+              return jsonify({"error": "Database not initialized"}), 503
+
+          page = max(1, safe_int(request.args.get('page'), 1))
+          limit = min(200, max(1, safe_int(request.args.get('limit'), 50)))
+          offset = (page - 1) * limit
+
+          db_pool = app.config['DB_POOL']
+          conn = None
+          try:
+              conn = db_pool.getconn()
+
+              # Total count
+              with conn.cursor() as cursor:
+                  cursor.execute(
+                      "SELECT COUNT(*) FROM config_audit_log WHERE table_name = %s",
+                      ('dynamic_config',)
+                  )
+                  total = cursor.fetchone()[0]
+
+              # Page of records
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                  cursor.execute(
+                      """
+                      SELECT id, changed_by, operation, table_name, record_id,
+                             old_values, new_values, reason, correlation_id,
+                             COALESCE(created_at, NOW()) AS created_at
+                      FROM config_audit_log
+                      WHERE table_name = %s
+                      ORDER BY id DESC
+                      LIMIT %s OFFSET %s
+                      """,
+                      ('dynamic_config', limit, offset)
+                  )
+                  rows = cursor.fetchall()
+
+              return jsonify({
+                  "history": rows,
+                  "pagination": {
+                      "page": page,
+                      "limit": limit,
+                      "total": total,
+                      "pages": (total + limit - 1) // limit
+                  }
+              })
+
+          except Exception as e:
+              logger.error(f"Failed to fetch dynamic config history: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+          finally:
+              if conn:
+                  db_pool.putconn(conn)
 
       # ================================================================
       # ALERT RULES CRUD API
