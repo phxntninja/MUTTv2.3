@@ -1044,6 +1044,7 @@ More details:
 - Architect status & review protocol: `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
 - Dynamic Config Cheat‑Sheet: `docs/DYNAMIC_CONFIG_CHEATSHEET.md`
 - ADRs: `docs/adr/README.md`
+- Architecture Decision Records: See `docs/adr/README.md` for key design choices.
 - Feature matrix: `docs/FEATURE_MATRIX.md`
 - Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
 

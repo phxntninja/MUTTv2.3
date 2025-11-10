@@ -10,7 +10,8 @@
       "Bash(move test_alerter_backpressure_unit.py test_alerter_backpressure_unit.py.SKIP)",
       "Bash(ren:*)",
       "Bash(cat:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(del temp_ci.yml)"
     ],
     "deny": [],
     "ask": []
