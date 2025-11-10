@@ -639,73 +639,73 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
 
         # Check response
         if response.status_code == 200 or response.status_code == 201:
-              logger.info(f"Successfully sent alert to Moog (latency: {latency:.2f}s)")
-              METRIC_MOOG_REQUESTS_TOTAL.labels(status='success').inc()
+            logger.info(f"Successfully sent alert to Moog (latency: {latency:.2f}s)")
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='success').inc()
 
-              # Phase 3A - Record success in circuit breaker
-              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-                  circuit_breaker.record_success()
+            # Phase 3A - Record success in circuit breaker
+            if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                circuit_breaker.record_success()
 
-              return (True, False, None)
+            return (True, False, None)
 
-          elif response.status_code == 429:
-              # Rate limited by Moog (shouldn't happen with our rate limiter)
-              logger.warning(f"Moog rate limited us (429). Status: {response.status_code}")
-              METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_rate_limit').inc()
+        elif response.status_code == 429:
+            # Rate limited by Moog (shouldn't happen with our rate limiter)
+            logger.warning(f"Moog rate limited us (429). Status: {response.status_code}")
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_rate_limit').inc()
 
-              # Phase 3A - Record failure in circuit breaker
-              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-                  circuit_breaker.record_failure()
+            # Phase 3A - Record failure in circuit breaker
+            if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                circuit_breaker.record_failure()
 
-              return (False, True, f"Moog rate limit: {response.status_code}")
+            return (False, True, f"Moog rate limit: {response.status_code}")
 
-          elif response.status_code >= 500:
-              # Server error - retry
-              logger.error(f"Moog server error: {response.status_code} - {response.text[:200]}")
-              METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+        elif response.status_code >= 500:
+            # Server error - retry
+            logger.error(f"Moog server error: {response.status_code} - {response.text[:200]}")
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
 
-              # Phase 3A - Record failure in circuit breaker
-              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-                  circuit_breaker.record_failure()
+            # Phase 3A - Record failure in circuit breaker
+            if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                circuit_breaker.record_failure()
 
-              return (False, True, f"Moog server error: {response.status_code}")
+            return (False, True, f"Moog server error: {response.status_code}")
 
-          else:
-              # Client error (4xx) - don't retry
-              logger.error(f"Moog client error: {response.status_code} - {response.text[:200]}")
-              METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
-              # Don't record client errors in circuit breaker - not a service availability issue
-              return (False, False, f"Moog client error: {response.status_code}")
+        else:
+            # Client error (4xx) - don't retry
+            logger.error(f"Moog client error: {response.status_code} - {response.text[:200]}")
+            METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+            # Don't record client errors in circuit breaker - not a service availability issue
+            return (False, False, f"Moog client error: {response.status_code}")
 
-      except requests.exceptions.Timeout:
-          logger.error(f"Moog request timeout after {config.MOOG_WEBHOOK_TIMEOUT}s")
-          METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+    except requests.exceptions.Timeout:
+        logger.error(f"Moog request timeout after {config.MOOG_WEBHOOK_TIMEOUT}s")
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
 
-          # Phase 3A - Record failure in circuit breaker
-          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-              circuit_breaker.record_failure()
+        # Phase 3A - Record failure in circuit breaker
+        if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+            circuit_breaker.record_failure()
 
-          return (False, True, "Timeout")
+        return (False, True, "Timeout")
 
-      except requests.exceptions.ConnectionError as e:
-          logger.error(f"Moog connection error: {e}")
-          METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"Moog connection error: {e}")
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
 
-          # Phase 3A - Record failure in circuit breaker
-          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-              circuit_breaker.record_failure()
+        # Phase 3A - Record failure in circuit breaker
+        if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+            circuit_breaker.record_failure()
 
-          return (False, True, f"Connection error: {e}")
+        return (False, True, f"Connection error: {e}")
 
-      except Exception as e:
-          logger.error(f"Unexpected error sending to Moog: {e}", exc_info=True)
-          METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+    except Exception as e:
+        logger.error(f"Unexpected error sending to Moog: {e}", exc_info=True)
+        METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
 
-          # Phase 3A - Record failure in circuit breaker
-          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
-              circuit_breaker.record_failure()
+        # Phase 3A - Record failure in circuit breaker
+        if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+            circuit_breaker.record_failure()
 
-          return (False, True, f"Unexpected error: {e}")
+        return (False, True, f"Unexpected error: {e}")
 
 
 def _map_severity(severity_str: str) -> int:
