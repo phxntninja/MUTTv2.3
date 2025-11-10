@@ -1,0 +1,41 @@
+# Codecov Configuration for MUTT v2.5
+# Enforces code coverage standards and prevents coverage regression
+
+coverage:
+  status:
+    project:
+      default:
+        # Fail PR if overall project coverage drops below this percentage
+        target: auto
+        threshold: 1%  # Allow up to 1% coverage drop
+        informational: false  # Make this a required check
+    patch:
+      default:
+        # Require new code in PRs to have at least this coverage
+        target: 70%
+        informational: false  # Make this a required check
+
+  range: 60..95  # Color scale from red (60%) to green (95%)
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default  # Post comment on PRs
+  require_changes: true  # Only comment if coverage changed
+
+ignore:
+  - "tests/**/*"  # Don't measure coverage of test files themselves
+  - "**/__pycache__"
+  - "**/.venv*"
+  - "**/venv*"
+  - "scripts/temp_*.py"  # Temporary scripts
+
+# Flag configuration for different parts of the codebase
+flags:
+  services:
+    paths:
+      - services/
+    carryforward: true
+  scripts:
+    paths:
+      - scripts/
+    carryforward: true

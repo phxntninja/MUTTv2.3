@@ -11,7 +11,8 @@
       "Bash(ren:*)",
       "Bash(cat:*)",
       "Bash(git checkout:*)",
-      "Bash(del temp_ci.yml)"
+      "Bash(del temp_ci.yml)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

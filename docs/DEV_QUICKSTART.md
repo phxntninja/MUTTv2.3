@@ -59,6 +59,24 @@ python scripts/muttdev.py config --get alerter_queue_warn_threshold
 python scripts/muttdev.py config --set alerter_queue_warn_threshold 2000 --publish
 ```
 
+CI/CD & Code Coverage
+The project uses GitHub Actions for continuous integration with strict quality gates:
+- **Lint** (Ruff), **Format** (Black), and **Type** (MyPy) checks are build-failing
+- Code coverage is tracked via Codecov with automatic PR comments
+- Coverage thresholds are enforced (see `codecov.yml`)
+
+**Setting up Codecov (for maintainers):**
+1. Sign up at https://codecov.io and link the repository
+2. Add `CODECOV_TOKEN` to GitHub repository secrets:
+   - Go to repo Settings → Secrets and variables → Actions
+   - Add secret named `CODECOV_TOKEN` with the token from Codecov
+3. Coverage reports will automatically post to PRs after the secret is configured
+
+**Coverage Configuration:**
+- Project coverage must not drop by more than 1% (configurable in `codecov.yml`)
+- New code in PRs must have at least 70% coverage
+- Coverage XML reports are generated in CI and uploaded as artifacts
+
 Notes
 - For integration tests or full stack runs, configure Redis/Postgres/Vault or use Docker Compose.
 - When testing, Web UI skips strict config validation to allow app creation without Vault.
