@@ -12,7 +12,7 @@ Run with:
 import pytest
 import json
 from unittest.mock import Mock, MagicMock, patch, call
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import os
 
@@ -121,9 +121,9 @@ class TestConfigAuditLogCleanup:
         config = {'dry_run': False, 'audit_days': 90, 'batch_size': 1000}
         cleanup = RetentionCleanup(mock_conn, config)
 
-        with patch('retention_cleanup.datetime') as mock_datetime:
-            mock_now = datetime(2025, 11, 10, 12, 0, 0)
-            mock_datetime.utcnow.return_value = mock_now
+        with patch('retention_cleanup.utcnow') as mock_utcnow:
+            mock_now = datetime(2025, 11, 10, 12, 0, 0, tzinfo=timezone.utc)
+            mock_utcnow.return_value = mock_now
 
             cleanup.cleanup_config_audit_logs()
 
@@ -190,9 +190,9 @@ class TestEventAuditLogCleanup:
         config = {'dry_run': False, 'event_audit_days': 45, 'batch_size': 1000}
         cleanup = RetentionCleanup(mock_conn, config)
 
-        with patch('retention_cleanup.datetime') as mock_datetime:
-            mock_now = datetime(2025, 11, 10)
-            mock_datetime.utcnow.return_value = mock_now
+        with patch('retention_cleanup.utcnow') as mock_utcnow:
+            mock_now = datetime(2025, 11, 10, tzinfo=timezone.utc)
+            mock_utcnow.return_value = mock_now
 
             cleanup.cleanup_event_audit_logs()
 
@@ -213,8 +213,8 @@ class TestDLQCleanup:
         cleanup = RetentionCleanup(mock_conn, config)
 
         # Old item (10 days ago) and new item (now)
-        old_ts = (datetime.utcnow() - timedelta(days=10)).isoformat()
-        new_ts = datetime.utcnow().isoformat()
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        new_ts = datetime.now(timezone.utc).isoformat()
         old_item = json.dumps({'failed_at': old_ts})
         new_item = json.dumps({'failed_at': new_ts})
 
@@ -235,9 +235,9 @@ class TestDLQCleanup:
         cleanup = RetentionCleanup(mock_conn, config)
 
         # Item exactly at cutoff should not be deleted (strict older-than check)
-        with patch('retention_cleanup.datetime') as mock_datetime:
-            base_now = datetime(2025, 11, 10)
-            mock_datetime.utcnow.return_value = base_now
+        with patch('retention_cleanup.utcnow') as mock_utcnow:
+            base_now = datetime(2025, 11, 10, tzinfo=timezone.utc)
+            mock_utcnow.return_value = base_now
 
             cutoff = base_now - timedelta(days=14)
             item = json.dumps({'failed_at': cutoff.isoformat()})

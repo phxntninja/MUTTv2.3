@@ -31,7 +31,7 @@ import os
 import logging
 import psycopg2
 import psycopg2.extras
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, Dict
 import json
 import redis
@@ -163,7 +163,7 @@ class RetentionCleanup:
             Exception: If database operation fails
         """
         retention_days = self.config.get('event_audit_days', 90)
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = utcnow() - timedelta(days=retention_days)
 
         logger.info(
             f"Starting event audit log cleanup "
@@ -234,7 +234,7 @@ class RetentionCleanup:
             int: Number of items removed across DLQ lists
         """
         retention_days = self.config.get('dlq_days', 30)
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = utcnow() - timedelta(days=retention_days)
         logger.info(
             f"Starting DLQ cleanup (Redis) (retention: {retention_days} days, cutoff: {cutoff_date})"
         )
@@ -312,7 +312,7 @@ class RetentionCleanup:
         logger.info(f"Mode: {'DRY RUN' if self.dry_run else 'LIVE'}")
         logger.info(f"Configuration: {self.config}")
 
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         try:
             # Clean up configuration audit logs
@@ -325,7 +325,7 @@ class RetentionCleanup:
             self.stats['dlq'] = self.cleanup_dlq_messages()
 
             # Summary
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (utcnow() - start_time).total_seconds()
             logger.info("=" * 60)
             logger.info("Retention Cleanup Summary")
             logger.info("=" * 60)
@@ -425,7 +425,7 @@ def write_metrics(stats: Dict[str, int], config: dict):
         return
 
     try:
-        timestamp = int(datetime.utcnow().timestamp() * 1000)
+        timestamp = int(utcnow().timestamp() * 1000)
 
         with open(metrics_file, 'w') as f:
             # Write metrics
@@ -456,3 +456,10 @@ def write_metrics(stats: Dict[str, int], config: dict):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# ---------------------------------------------------------------------
+# Time helpers (timezone-aware UTC)
+# ---------------------------------------------------------------------
+def utcnow() -> datetime:
+    """Return timezone-aware current UTC datetime (no deprecation warnings)."""
+    return datetime.now(timezone.utc)

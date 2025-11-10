@@ -49,7 +49,7 @@ if True:
   import psycopg2.pool
   import psycopg2.extras
   from flask import Flask, jsonify, Response, request, render_template_string, current_app
-  from datetime import datetime, timedelta
+  from datetime import datetime, timedelta, timezone
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
@@ -673,7 +673,7 @@ def create_app() -> Flask:
           with METRIC_API_LATENCY.labels(endpoint='metrics').time():
               try:
                   r = redis.Redis(connection_pool=app.redis_pool)
-                  now = datetime.utcnow()
+                  now = datetime.now(timezone.utc)
 
                   # --- 1. Get 1-Minute Keys (for 1m, 15m, 60m avgs) ---
                   with METRIC_REDIS_SCAN_LATENCY.time():
@@ -944,7 +944,7 @@ def create_app() -> Flask:
                       all_slo_results.append(slo_result)
                   
                   report = {
-                      "timestamp": datetime.utcnow().isoformat(),
+                      "timestamp": datetime.now(timezone.utc).isoformat(),
                       "slos": all_slo_results
                   }
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='slo', status='success').inc()

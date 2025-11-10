@@ -49,7 +49,7 @@ import psycopg2
 import psycopg2.pool
 import psycopg2.extras
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from prometheus_client import start_http_server, Counter, Gauge, Histogram
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Dict, Optional, Tuple
@@ -991,7 +991,7 @@ def process_handled_event(
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    message_data.get('timestamp', datetime.utcnow().isoformat()),
+                    message_data.get('timestamp', datetime.now(timezone.utc).isoformat()),
                     hostname,
                     rule['id'],
                     handling_decision,

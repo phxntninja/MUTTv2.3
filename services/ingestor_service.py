@@ -36,7 +36,7 @@ if True:
   import threading
   from typing import Dict, Any
   from flask import Flask, request, jsonify
-  from datetime import datetime
+  from datetime import datetime, timezone
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram
   from redis_connector import get_redis_pool  # type: ignore
@@ -661,7 +661,7 @@ if True:
                   message_string = json.dumps(message_data)
 
                   # Generate time-windowed metric keys
-                  now = datetime.utcnow()
+                  now = datetime.now(timezone.utc)
                   key_1m = f"{config['METRICS_PREFIX']}:1m:{now.strftime('%Y-%m-%dT%H:%M')}"
                   key_1h = f"{config['METRICS_PREFIX']}:1h:{now.strftime('%Y-%m-%dT%H')}"
                   key_24h = f"{config['METRICS_PREFIX']}:24h:{now.strftime('%Y-%m-%d')}"

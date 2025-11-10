@@ -30,7 +30,7 @@ import time
 import threading
 import requests
 from typing import Optional, Tuple, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 # Phase 2: Optional observability imports
@@ -251,7 +251,7 @@ def check_moogsoft_health(config: Config) -> bool:
             "description": "Health check probe - auto-close",
             "severity": "clear",
             "check_id": f"health_check_{int(time.time())}",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         response = requests.post(
