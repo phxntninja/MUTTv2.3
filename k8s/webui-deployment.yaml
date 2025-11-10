@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mutt-webui
+  template:
+    metadata:
+      labels:
+        app: mutt-webui
+    spec:
+      containers:
+        - name: webui
+          image: mutt-webui:2.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          envFrom:
+            - configMapRef:
+                name: mutt-config
+            - secretRef:
+                name: mutt-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-webui
+spec:
+  selector:
+    app: mutt-webui
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090

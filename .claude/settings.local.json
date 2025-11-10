@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(.venv310Scriptspython.exe -m pytest tests/test_logging_utils.py -v --tb=short)",
+      "Bash(venv310/Scripts/python.exe -m pytest tests/test_logging_utils.py -v --tb=short)",
+      "Bash(venv310/Scripts/python.exe -m pytest:*)",
+      "Bash(venv310/Scripts/python.exe:*)",
+      "Bash(findstr:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

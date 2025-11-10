@@ -130,10 +130,10 @@ def mock_postgres_conn():
 
 
 @pytest.fixture
-def mock_postgres_pool():
+def mock_postgres_pool(mock_postgres_conn):
     """Mock PostgreSQL connection pool"""
     pool = MagicMock()
-    conn = mock_postgres_conn()
+    conn = mock_postgres_conn
 
     pool.getconn.return_value = conn
     pool.putconn.return_value = None

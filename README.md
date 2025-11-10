@@ -31,6 +31,11 @@
   - [Troubleshooting](#troubleshooting)
   - [Contributing](#contributing)
   - [License](#license)
+  - [Observability](#observability)
+  - [What’s New in v2.5](#whats-new-in-v25)
+  - [API Docs](#api-docs)
+  - [Runbook](#runbook)
+  - [Dashboards & Alerts](#dashboards--alerts)
 
   ---
 
@@ -346,6 +351,10 @@
 
   ---
   ⚙️ Configuration
+
+  Note on Dynamic Configuration (v2.5): Set `DYNAMIC_CONFIG_ENABLED=true` to enable runtime reads from Redis for select settings (e.g., Alerter cache interval, unhandled thresholds; Moog rate limits). When disabled, services use static environment values.
+
+  Development Standards: See `docs/DEVELOPMENT_STANDARDS.md` for Black/isort/Ruff/MyPy usage and local commands.
 
   Ingestor Service Configuration
 
@@ -963,3 +972,39 @@
   Built with ❤️ by the MUTT Team | Version 2.3
 
   ---
+## Observability
+
+See `docs/observability.md` for OpenTelemetry configuration: running without a backend, disabling OTEL, console exporters, and enabling via a Collector or backend.
+
+## What’s New in v2.5
+
+- Dynamic config APIs (view/update at runtime) and history
+- Zero‑downtime secret rotation (dual‑password connectors)
+- Operator docs: rotation runbook and upgrade guide
+- Test hardening and improved reliability around Redis/Postgres connections
+
+More details:
+- Handoff: `docs/PHASE_2_HANDOFF.md`
+- Feature matrix: `docs/FEATURE_MATRIX.md`
+- Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
+
+## API Docs
+
+- Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
+
+## Runbook
+
+- On‑Call Runbook: `docs/ONCALL_RUNBOOK.md`
+
+## Dashboards & Alerts
+
+- Grafana dashboard JSON: `docs/grafana/mutt-dashboard-v25.json`
+  - Import via Grafana → Dashboards → Import → Upload JSON.
+- Grafana provisioning (example):
+  - Dashboards provider: `docs/grafana/provisioning/dashboards.yml`
+  - Prometheus datasource: `docs/grafana/provisioning/datasources.yml`
+  - Mount `docs/grafana` into Grafana container (e.g., `/var/lib/grafana/dashboards`).
+- Prometheus alert rules: `docs/prometheus/alerts-v25.yml`
+  - Load into your Prometheus/Alertmanager stack; adjust thresholds to your environment.
+- Alertmanager example routing: `docs/alertmanager/config-v25.yml`
+  - Replace email/webhook with your receivers and global SMTP/webhook config.

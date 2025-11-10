@@ -399,6 +399,23 @@ python services/web_ui_service.py
 
 ### Debugging
 
+---
+
+## Code Style and Type Checking (Phase 1)
+
+We use Black, Ruff, isort, and MyPy to keep code consistent and catch issues early.
+
+- Format: `black .`
+- Imports: `isort .`
+- Lint: `ruff check services/ tests/`
+- Types: `mypy services/ tests/`
+
+Recommended workflow:
+1. Install tools: `pip install black isort ruff mypy`
+2. Before committing: run the four commands above.
+3. CI runs these checks; Ruff and MyPy are initially non‑blocking while we add typings incrementally.
+
+
 ```bash
 # Enable debug logging
 export LOG_LEVEL=DEBUG

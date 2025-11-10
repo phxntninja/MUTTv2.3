@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Web UI & API Service (v2.3 - Production Ready)
@@ -46,11 +47,35 @@
   import psycopg2
   import psycopg2.pool
   import psycopg2.extras
-  from flask import Flask, jsonify, Response, request, render_template_string
+  from flask import Flask, jsonify, Response, request, render_template_string, current_app
   from datetime import datetime, timedelta
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
+  from typing import Any, Dict, Optional, Callable
+  from services.postgres_connector import get_postgres_pool  # type: ignore
+  from services.redis_connector import get_redis_pool  # type: ignore
+  
+  # Dynamic configuration (optional)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      DynamicConfig = None  # type: ignore
+  
+  # Audit logger for configuration changes (optional import)
+  try:
+      from audit_logger import log_config_change  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      log_config_change = None  # type: ignore
+
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      extract_tracecontext = None  # type: ignore
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -84,11 +109,15 @@
   # LOGGING SETUP
   # =====================================================================
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="web_ui", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
 
 
   class CorrelationIdFilter(logging.Filter):
@@ -101,6 +130,7 @@
           return True
 
 
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
@@ -176,7 +206,7 @@
   # VAULT SECRET MANAGEMENT
   # =====================================================================
 
-  def fetch_secrets(app):
+def fetch_secrets(app: Flask) -> None:
       """Connects to Vault, fetches secrets, and starts renewal thread."""
       config = app.config["MUTT_CONFIG"]
 
@@ -209,16 +239,24 @@
           )
           data = response['data']['data']
 
+          # Support dual-password scheme with backward compatibility
           app.config["SECRETS"] = {
-              "REDIS_PASS": data.get('REDIS_PASS'),
+              "DB_USER": data.get('DB_USER', config.DB_USER),
+              "DB_PASS_CURRENT": data.get('DB_PASS_CURRENT') or data.get('DB_PASS'),
+              "DB_PASS_NEXT": data.get('DB_PASS_NEXT'),
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
+              # Back-compat single keys
               "DB_PASS": data.get('DB_PASS'),
+              "REDIS_PASS": data.get('REDIS_PASS'),
+              # API key
               "WEBUI_API_KEY": data.get('WEBUI_API_KEY', 'dev-key-please-change')
           }
 
-          if not app.config["SECRETS"]["REDIS_PASS"]:
-              raise ValueError("REDIS_PASS not found in Vault")
-          if not app.config["SECRETS"]["DB_PASS"]:
-              raise ValueError("DB_PASS not found in Vault")
+          if not (app.config["SECRETS"].get("REDIS_PASS_CURRENT") or app.config["SECRETS"].get("REDIS_PASS_NEXT")):
+              raise ValueError("Redis password not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
+          if not (app.config["SECRETS"].get("DB_PASS_CURRENT") or app.config["SECRETS"].get("DB_PASS_NEXT")):
+              raise ValueError("DB password not found in Vault (expected DB_PASS_CURRENT or DB_PASS)")
 
           logger.info("Successfully loaded secrets from Vault")
 
@@ -231,7 +269,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(app):
+def start_vault_token_renewal(app: Flask) -> None:
       """Starts a background daemon thread for Vault token renewal."""
       config = app.config["MUTT_CONFIG"]
       vault_client = app.config["VAULT_CLIENT"]
@@ -277,7 +315,7 @@
   # DATABASE CONNECTION POOL
   # =====================================================================
 
-  def create_postgres_pool(app):
+def create_postgres_pool(app: Flask) -> None:
       """Creates a PostgreSQL connection pool with TLS."""
       config = app.config["MUTT_CONFIG"]
       secrets = app.config["SECRETS"]
@@ -288,34 +326,21 @@
       )
 
       try:
-          conn_kwargs = {
-              'host': config.DB_HOST,
-              'port': config.DB_PORT,
-              'dbname': config.DB_NAME,
-              'user': secrets.get('DB_USER', config.DB_USER),
-              'password': secrets['DB_PASS'],
-          }
-
-          if config.DB_TLS_ENABLED:
-              conn_kwargs['sslmode'] = 'require'
-              if config.DB_TLS_CA_CERT_PATH:
-                  conn_kwargs['sslrootcert'] = config.DB_TLS_CA_CERT_PATH
-
-          # Create threaded connection pool
-          pool = psycopg2.pool.ThreadedConnectionPool(
+          pool = get_postgres_pool(
+              host=config.DB_HOST,
+              port=config.DB_PORT,
+              dbname=config.DB_NAME,
+              user=secrets.get('DB_USER', config.DB_USER),
+              password_current=secrets.get('DB_PASS_CURRENT') or secrets.get('DB_PASS'),
+              password_next=secrets.get('DB_PASS_NEXT'),
               minconn=config.DB_POOL_MIN_CONN,
               maxconn=config.DB_POOL_MAX_CONN,
-              **conn_kwargs
+              sslmode='require' if config.DB_TLS_ENABLED else None,
+              sslrootcert=config.DB_TLS_CA_CERT_PATH,
+              logger=logger,
           )
-
-          # Test connection
-          test_conn = pool.getconn()
-          test_conn.cursor().execute('SELECT 1')
-          pool.putconn(test_conn)
-
           app.config['DB_POOL'] = pool
-          logger.info("Successfully created PostgreSQL connection pool")
-
+          logger.info("Successfully created PostgreSQL connection pool (dual-password aware)")
       except Exception as e:
           logger.error(f"FATAL: Could not create PostgreSQL pool: {e}", exc_info=True)
           sys.exit(1)
@@ -324,53 +349,42 @@
   # REDIS CONNECTION POOL
   # =====================================================================
 
-  def create_redis_pool(app):
+def create_redis_pool(app: Flask) -> None:
       """Creates a Redis connection pool and stores it on the app."""
       config = app.config["MUTT_CONFIG"]
       secrets = app.config["SECRETS"]
 
       try:
           logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
-
-          pool_kwargs = {
-              'host': config.REDIS_HOST,
-              'port': config.REDIS_PORT,
-              'password': secrets["REDIS_PASS"],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'max_connections': config.REDIS_MAX_CONNECTIONS,
-          }
-
-          if config.REDIS_TLS_ENABLED:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-              if config.REDIS_CA_CERT_PATH:
-                  pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
-
-          pool = redis.ConnectionPool(**pool_kwargs)
+          pool = get_redis_pool(
+              host=config.REDIS_HOST,
+              port=config.REDIS_PORT,
+              tls_enabled=config.REDIS_TLS_ENABLED,
+              ca_cert_path=config.REDIS_CA_CERT_PATH,
+              password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+              password_next=secrets.get('REDIS_PASS_NEXT'),
+              max_connections=config.REDIS_MAX_CONNECTIONS,
+              logger=logger,
+          )
           app.redis_pool = pool
-
           # Test connection
-          r = redis.Redis(connection_pool=pool)
-          r.ping()
-
-          logger.info("Successfully connected to Redis")
-
+          redis.Redis(connection_pool=pool).ping()
+          logger.info("Successfully connected to Redis (dual-password aware)")
       except Exception as e:
           logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)
           sys.exit(1)
 
-  # =====================================================================
-  # AUTHENTICATION DECORATOR
-  # =====================================================================
+# =====================================================================
+# AUTHENTICATION DECORATOR
+# =====================================================================
 
-  def require_api_key(f):
+def require_api_key(f: Callable) -> Callable:
       """Decorator to require API key authentication."""
       @wraps(f)
       def decorated_function(*args, **kwargs):
           # Get API key from header or query parameter
           api_key = request.headers.get('X-API-KEY') or request.args.get('api_key')
-          expected_key = request.app.config["SECRETS"]["WEBUI_API_KEY"]
+          expected_key = current_app.config["SECRETS"]["WEBUI_API_KEY"]
 
           # Use constant-time comparison
           if not api_key or not secrets_module.compare_digest(api_key, expected_key):
@@ -381,37 +395,37 @@
 
       return decorated_function
 
-  # =====================================================================
-  # METRICS CACHE
-  # =====================================================================
+# =====================================================================
+# METRICS CACHE
+# =====================================================================
 
-  class MetricsCache:
-      """Simple time-based cache for metrics to reduce Redis load."""
+class MetricsCache:
+    """Simple time-based cache for metrics to reduce Redis load."""
 
-      def __init__(self, ttl=5):
-          self.ttl = ttl
-          self.data = None
-          self.timestamp = 0
-          self.lock = threading.Lock()
+    def __init__(self, ttl: int = 5) -> None:
+        self.ttl = ttl
+        self.data = None
+        self.timestamp = 0
+        self.lock = threading.Lock()
 
-      def get(self):
-          """Get cached data if still valid."""
-          with self.lock:
-              if self.data and (time.time() - self.timestamp) < self.ttl:
-                  return self.data
-              return None
+    def get(self) -> Optional[Any]:
+        """Get cached data if still valid."""
+        with self.lock:
+            if self.data and (time.time() - self.timestamp) < self.ttl:
+                return self.data
+            return None
 
-      def set(self, data):
-          """Cache new data with current timestamp."""
-          with self.lock:
-              self.data = data
-              self.timestamp = time.time()
+    def set(self, data: Any) -> None:
+        """Cache new data with current timestamp."""
+        with self.lock:
+            self.data = data
+            self.timestamp = time.time()
 
   # =====================================================================
   # UTILITY FUNCTIONS
   # =====================================================================
 
-  def safe_int(value, default=0):
+def safe_int(value: Any, default: int = 0) -> int:
       """Safely convert value to int."""
       try:
           return int(value) if value else default
@@ -422,7 +436,7 @@
   # FLASK APPLICATION FACTORY
   # =====================================================================
 
-  def create_app():
+def create_app() -> Flask:
       """Creates and configures the Flask application."""
 
       app = Flask(__name__)
@@ -430,12 +444,28 @@
       # Load configuration
       app.config["MUTT_CONFIG"] = Config()
 
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="web_ui", version="2.3.0")
+
       # Fetch secrets and start Vault renewal
       fetch_secrets(app)
 
       # Initialize connection pools
       create_redis_pool(app)
       create_postgres_pool(app)
+
+      # Initialize DynamicConfig if available (uses Redis pool)
+      if DynamicConfig is not None:
+          try:
+              dyn = DynamicConfig(redis.Redis(connection_pool=app.redis_pool), prefix="mutt:config")
+              dyn.start_watcher()
+              app.config["DYNAMIC_CONFIG"] = dyn
+              logger.info("DynamicConfig initialized for Web UI")
+          except Exception as e:
+              logger.warning(f"DynamicConfig initialization failed: {e}")
+      else:
+          logger.warning("DynamicConfig not available; config management API will be disabled")
 
       # Initialize Prometheus metrics (disable default path)
       PrometheusMetrics(app, path=None)
@@ -452,6 +482,15 @@
           """Set up request-specific context."""
           request.correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
           request.start_time = time.time()
+
+          # Phase 2: Extract trace context from incoming request headers (if available)
+          # Note: Flask auto-instrumentation handles this automatically, but we
+          # keep this for explicit extraction in case of manual span creation
+          if extract_tracecontext is not None:
+              try:
+                  extract_tracecontext(dict(request.headers))
+              except Exception:
+                  pass  # Trace context extraction is optional
 
       @app.after_request
       def log_request(response):
@@ -600,6 +639,149 @@
                   logger.error(f"Unhandled error in get_api_metrics: {e}", exc_info=True)
                   METRIC_API_REQUESTS_TOTAL.labels(endpoint='metrics', status='fail_unknown').inc()
                   return jsonify({"error": "Internal server error"}), 500
+
+      # ================================================================
+      # CONFIG MANAGEMENT API
+      # ================================================================
+
+      @app.route('/api/v1/config', methods=['GET'])
+      @require_api_key
+      def get_dynamic_config():
+          """List all dynamic configuration values."""
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return jsonify({"error": "Dynamic configuration not available"}), 503
+
+          try:
+              values = dyn.get_all()
+              return jsonify({"config": values})
+          except Exception as e:
+              logger.error(f"Failed to fetch dynamic config: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+      @app.route('/api/v1/config/<key>', methods=['PUT'])
+      @require_api_key
+      def update_dynamic_config(key: str):
+          """Update a specific dynamic configuration value and audit the change."""
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return jsonify({"error": "Dynamic configuration not available"}), 503
+
+          data = request.get_json(silent=True) or {}
+          if 'value' not in data:
+              return jsonify({"error": "Missing 'value' in request body"}), 400
+
+          new_value = str(data['value'])
+          reason = data.get('reason')
+
+          old_value = None
+          try:
+              try:
+                  old_value = dyn.get(key, default=None)
+              except Exception:
+                  old_value = None
+
+              dyn.set(key, new_value)
+
+              # Attempt to write audit log (best-effort)
+              if log_config_change is not None and 'DB_POOL' in app.config:
+                  db_pool = app.config['DB_POOL']
+                  conn = None
+                  try:
+                      conn = db_pool.getconn()
+                      api_key = request.headers.get('X-API-KEY') or request.args.get('api_key') or 'unknown'
+                      changed_by = f"webui_api:{api_key[:8]}"
+                      # Derive a stable positive int from the key for record_id
+                      record_id = abs(hash(key)) % 2147483647 or 1
+                      operation = 'UPDATE' if old_value is not None else 'CREATE'
+                      log_config_change(
+                          conn=conn,
+                          changed_by=changed_by,
+                          operation=operation,
+                          table_name='dynamic_config',
+                          record_id=record_id,
+                          old_values={"key": key, "value": old_value} if old_value is not None else None,
+                          new_values={"key": key, "value": new_value},
+                          reason=reason,
+                          correlation_id=getattr(request, 'correlation_id', None)
+                      )
+                  except Exception as e:
+                      if conn:
+                          try:
+                              conn.rollback()
+                          except Exception:
+                              pass
+                      logger.error(f"Audit log failed for config update {key}: {e}", exc_info=True)
+                  finally:
+                      if conn:
+                          db_pool.putconn(conn)
+
+              return jsonify({
+                  "key": key,
+                  "old_value": old_value,
+                  "new_value": new_value
+              })
+
+          except Exception as e:
+              logger.error(f"Failed to update dynamic config {key}: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+
+      @app.route('/api/v1/config/history', methods=['GET'])
+      @require_api_key
+      def get_dynamic_config_history():
+          """Return recent dynamic configuration change history from config_audit_log."""
+          if 'DB_POOL' not in app.config:
+              return jsonify({"error": "Database not initialized"}), 503
+
+          page = max(1, safe_int(request.args.get('page'), 1))
+          limit = min(200, max(1, safe_int(request.args.get('limit'), 50)))
+          offset = (page - 1) * limit
+
+          db_pool = app.config['DB_POOL']
+          conn = None
+          try:
+              conn = db_pool.getconn()
+
+              # Total count
+              with conn.cursor() as cursor:
+                  cursor.execute(
+                      "SELECT COUNT(*) FROM config_audit_log WHERE table_name = %s",
+                      ('dynamic_config',)
+                  )
+                  total = cursor.fetchone()[0]
+
+              # Page of records
+              with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                  cursor.execute(
+                      """
+                      SELECT id, changed_by, operation, table_name, record_id,
+                             old_values, new_values, reason, correlation_id,
+                             COALESCE(created_at, NOW()) AS created_at
+                      FROM config_audit_log
+                      WHERE table_name = %s
+                      ORDER BY id DESC
+                      LIMIT %s OFFSET %s
+                      """,
+                      ('dynamic_config', limit, offset)
+                  )
+                  rows = cursor.fetchall()
+
+              return jsonify({
+                  "history": rows,
+                  "pagination": {
+                      "page": page,
+                      "limit": limit,
+                      "total": total,
+                      "pages": (total + limit - 1) // limit
+                  }
+              })
+
+          except Exception as e:
+              logger.error(f"Failed to fetch dynamic config history: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
+          finally:
+              if conn:
+                  db_pool.putconn(conn)
 
       # ================================================================
       # ALERT RULES CRUD API
@@ -1144,7 +1326,7 @@
   # GRACEFUL SHUTDOWN
   # =====================================================================
 
-  def setup_signal_handlers(app):
+def setup_signal_handlers(app: Flask) -> None:
       """Set up signal handlers for graceful shutdown."""
 
       def shutdown_handler(signum, frame):
@@ -1175,7 +1357,7 @@
   # HTML DASHBOARD TEMPLATE
   # =====================================================================
 
-  HTML_DASHBOARD = """
+HTML_DASHBOARD = """
   <!DOCTYPE html>
   <html lang="en">
   <head>
@@ -1413,27 +1595,28 @@
   # MAIN ENTRY POINT
   # =====================================================================
 
-  if __name__ == '__main__':
-      app = create_app()
-      setup_signal_handlers(app)
-      port = app.config["MUTT_CONFIG"].PORT
+if __name__ == '__main__':
+  app = create_app()
+  setup_signal_handlers(app)
+  port = app.config["MUTT_CONFIG"].PORT
 
-      logger.info("=" * 70)
-      logger.info("MUTT Web UI & API Service v2.3 - Production Ready")
-      logger.info("=" * 70)
-      logger.warning("Running in DEBUG mode - DO NOT USE IN PRODUCTION")
-      logger.info("")
-      logger.info("For production, use Gunicorn:")
-      logger.info("  gunicorn --bind 0.0.0.0:8090 --workers 4 \\")
-      logger.info("           --timeout 30 --worker-class sync \\")
-      logger.info("           'web_ui_service:create_app()'")
-      logger.info("")
-      logger.info(f"Dashboard: http://localhost:{port}/?api_key=YOUR_KEY")
-      logger.info(f"API Docs: See code comments for full API reference")
-      logger.info("=" * 70)
+  logger.info("=" * 70)
+  logger.info("MUTT Web UI & API Service v2.3 - Production Ready")
+  logger.info("=" * 70)
+  logger.warning("Running in DEBUG mode - DO NOT USE IN PRODUCTION")
+  logger.info("")
+  logger.info("For production, use Gunicorn:")
+  logger.info("  gunicorn --bind 0.0.0.0:8090 --workers 4 \\")
+  logger.info("           --timeout 30 --worker-class sync \\")
+  logger.info("           'web_ui_service:create_app()'")
+  logger.info("")
+  logger.info(f"Dashboard: http://localhost:{port}/?api_key=YOUR_KEY")
+  logger.info(f"API Docs: See code comments for full API reference")
+  logger.info("=" * 70)
 
-      app.run(host='0.0.0.0', port=port, debug=True)
+  app.run(host='0.0.0.0', port=port, debug=True)
 
+_TAIL_DOC = """
   ---
   Key Improvements in v2.3
 
@@ -1534,3 +1717,4 @@
     -d '{"hostname": "dev-switch1"}'
 
   This is now 100% production-ready with full CRUD functionality! 🚀
+"""

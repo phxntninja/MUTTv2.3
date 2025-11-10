@@ -1,4 +1,5 @@
-● #!/usr/bin/env python3
+#!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Ingestor Service (v2.3 - Production Ready)
@@ -33,10 +34,32 @@
   import signal
   import sys
   import threading
+  from typing import Dict, Any
   from flask import Flask, request, jsonify
   from datetime import datetime
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram
+  from redis_connector import get_redis_pool  # type: ignore
+  # Dynamic configuration (optional, behind feature flag)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover - optional import safety
+      DynamicConfig = None
+
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      extract_tracecontext = None  # type: ignore
+
+  # Phase 3A - Advanced Reliability (Rate Limiter)
+  try:
+      from rate_limiter import RedisSlidingWindowRateLimiter  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      RedisSlidingWindowRateLimiter = None  # type: ignore
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -59,15 +82,25 @@
       buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
   )
 
+  # Phase 3A - Rate Limiting Metrics
+  METRIC_RATE_LIMIT_HITS = Counter(
+      'mutt_ingest_rate_limit_hits_total',
+      'Total number of requests rejected due to rate limiting'
+  )
+
   # =====================================================================
   # LOGGING SETUP WITH CORRELATION ID FILTER
   # =====================================================================
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="ingestor", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
 
 
   class CorrelationIdFilter(logging.Filter):
@@ -82,14 +115,20 @@
           return True
 
 
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
   # CONFIGURATION
   # =====================================================================
 
-  def load_config():
-      """Loads and validates configuration from environment variables."""
+  def load_config() -> dict:
+      """
+      Loads and validates configuration from environment variables.
+
+      Returns:
+          dict: Validated configuration values.
+      """
       try:
           config = {
               "PORT": int(os.environ.get('SERVER_PORT_INGESTOR', 8080)),
@@ -115,7 +154,15 @@
               "METRICS_PREFIX": os.environ.get('METRICS_PREFIX', 'mutt:metrics'),
 
               # Input Validation
-              "REQUIRED_FIELDS": os.environ.get('REQUIRED_FIELDS', 'hostname,message,timestamp')
+              "REQUIRED_FIELDS": os.environ.get('REQUIRED_FIELDS', 'hostname,message,timestamp'),
+
+              # Phase 3A - Rate Limiting
+              "RATE_LIMIT_ENABLED": os.environ.get('RATE_LIMIT_ENABLED', 'true').lower() == 'true',
+              "INGEST_MAX_RATE": int(os.environ.get('INGEST_MAX_RATE', 1000)),  # Requests per window
+              "INGEST_RATE_WINDOW": int(os.environ.get('INGEST_RATE_WINDOW', 60)),  # Window in seconds
+
+              # Dynamic Config (Phase 1 - optional)
+              "DYNAMIC_CONFIG_ENABLED": os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true',
           }
 
           # === Configuration Validation (Fail Fast) ===
@@ -163,7 +210,7 @@
   # VAULT SECRET MANAGEMENT WITH TOKEN RENEWAL
   # =====================================================================
 
-  def fetch_secrets(app):
+  def fetch_secrets(app: Flask) -> None:
       """
       Connects to Vault, fetches secrets, and stores them in app.config.
       Also starts a background thread for token renewal.
@@ -206,15 +253,18 @@
 
           data = response['data']['data']
 
-          # Store secrets on app.config
+          # Store secrets on app.config (dual-password aware)
           app.config["SECRETS"] = {
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
+              # Back-compat key
               "REDIS_PASS": data.get('REDIS_PASS'),
               "INGEST_API_KEY": data.get('INGEST_API_KEY')
           }
 
           # Validate required secrets exist
-          if not app.config["SECRETS"]["REDIS_PASS"]:
-              raise ValueError("Required secret REDIS_PASS not found in Vault")
+          if not (app.config["SECRETS"].get("REDIS_PASS_CURRENT") or app.config["SECRETS"].get("REDIS_PASS_NEXT")):
+              raise ValueError("Required Redis secret not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
           if not app.config["SECRETS"]["INGEST_API_KEY"]:
               raise ValueError("Required secret INGEST_API_KEY not found in Vault")
 
@@ -231,7 +281,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(app):
+  def start_vault_token_renewal(app: Flask) -> None:
       """
       Starts a background daemon thread that periodically checks Vault token TTL
       and renews it before expiry.
@@ -299,7 +349,7 @@
   # REDIS CONNECTION POOL
   # =====================================================================
 
-  def create_redis_pool(app):
+  def create_redis_pool(app: Flask) -> None:
       """Creates a Redis connection pool and stores it on the app."""
       config = app.config["CONFIG"]
       secrets = app.config["SECRETS"]
@@ -312,33 +362,23 @@
               f"Max Connections: {config['REDIS_MAX_CONNECTIONS']})"
           )
 
-          pool_kwargs = {
-              'host': config['REDIS_HOST'],
-              'port': config['REDIS_PORT'],
-              'password': secrets["REDIS_PASS"],
-              'max_connections': config['REDIS_MAX_CONNECTIONS'],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'socket_keepalive': True,
-          }
-
-          # Add TLS parameters if enabled
-          if config['REDIS_TLS_ENABLED']:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-
-              if config['REDIS_CA_CERT_PATH']:
-                  pool_kwargs['ssl_ca_certs'] = config['REDIS_CA_CERT_PATH']
-
-          # Create connection pool
-          pool = redis.ConnectionPool(**pool_kwargs)
+          pool = get_redis_pool(
+              host=config['REDIS_HOST'],
+              port=config['REDIS_PORT'],
+              tls_enabled=config['REDIS_TLS_ENABLED'],
+              ca_cert_path=config.get('REDIS_CA_CERT_PATH'),
+              password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+              password_next=secrets.get('REDIS_PASS_NEXT'),
+              max_connections=config['REDIS_MAX_CONNECTIONS'],
+              logger=logger,
+          )
           app.redis_pool = pool
 
           # Test the connection
           test_client = redis.Redis(connection_pool=pool)
           test_client.ping()
 
-          logger.info("Successfully created and tested Redis connection pool")
+          logger.info("Successfully created and tested Redis connection pool (dual-password aware)")
 
       except Exception as e:
           logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)
@@ -348,7 +388,48 @@
   # FLASK APPLICATION FACTORY
   # =====================================================================
 
-  def create_app():
+  def _init_dynamic_config(app: Flask) -> None:
+      """
+      Initialize DynamicConfig and attach to app if enabled and available.
+
+      This is a no-op unless CONFIG['DYNAMIC_CONFIG_ENABLED'] is true.
+      """
+      try:
+          if not app.config["CONFIG"].get("DYNAMIC_CONFIG_ENABLED"):
+              return
+          if DynamicConfig is None:
+              logger.warning("DynamicConfig not available; skipping dynamic configuration init")
+              return
+
+          # Use existing pool to create a Redis client
+          redis_client = redis.Redis(connection_pool=app.redis_pool)
+          dyn = DynamicConfig(redis_client, prefix="mutt:config")
+          dyn.start_watcher()
+          app.config["DYNAMIC_CONFIG"] = dyn
+          logger.info("Dynamic configuration initialized (watcher started)")
+      except Exception as e:
+          logger.error(f"Failed to initialize dynamic configuration: {e}")
+
+
+  def _get_max_ingest_queue_size(app: Flask) -> int:
+      """
+      Resolve max ingest queue size, using DynamicConfig if enabled.
+
+      Falls back to static CONFIG value on errors or if disabled.
+      """
+      try:
+          base_limit = int(app.config["CONFIG"]["MAX_INGEST_QUEUE_SIZE"])
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return base_limit
+          value = dyn.get('max_ingest_queue_size', default=str(base_limit))
+          return int(value)
+      except Exception as e:
+          logger.warning(f"Dynamic queue size lookup failed, using static: {e}")
+          return int(app.config["CONFIG"]["MAX_INGEST_QUEUE_SIZE"])
+
+
+  def create_app() -> Flask:
       """Creates and configures the Flask application."""
 
       app = Flask(__name__)
@@ -356,11 +437,37 @@
       # Load and validate configuration
       app.config["CONFIG"] = load_config()
 
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="ingestor", version="2.3.0")
+
       # Fetch secrets and start Vault renewal thread
       fetch_secrets(app)
 
       # Initialize Redis connection pool
       create_redis_pool(app)
+
+      # Initialize optional dynamic configuration
+      _init_dynamic_config(app)
+
+      # Phase 3A - Initialize rate limiter
+      app.rate_limiter = None
+      if RedisSlidingWindowRateLimiter is not None and app.config["CONFIG"]["RATE_LIMIT_ENABLED"]:
+          try:
+              redis_client = redis.Redis(connection_pool=app.redis_pool)
+              app.rate_limiter = RedisSlidingWindowRateLimiter(
+                  redis_client=redis_client,
+                  key="mutt:rate_limit:ingestor",
+                  max_requests=app.config["CONFIG"]["INGEST_MAX_RATE"],
+                  window_seconds=app.config["CONFIG"]["INGEST_RATE_WINDOW"]
+              )
+              logger.info(
+                  f"Rate limiter enabled: {app.config['CONFIG']['INGEST_MAX_RATE']} requests "
+                  f"per {app.config['CONFIG']['INGEST_RATE_WINDOW']} seconds"
+              )
+          except Exception as e:
+              logger.warning(f"Failed to initialize rate limiter: {e}; continuing without it")
+              app.rate_limiter = None
 
       # Initialize Prometheus metrics
       PrometheusMetrics(app)
@@ -377,6 +484,14 @@
           # Generate or extract correlation ID for request tracing
           correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
           request.correlation_id = correlation_id
+
+          # Phase 2: Extract trace context from incoming request headers (if available)
+          # Note: Flask auto-instrumentation handles this automatically
+          if extract_tracecontext is not None:
+              try:
+                  extract_tracecontext(dict(request.headers))
+              except Exception:
+                  pass  # Trace context extraction is optional
 
           # Skip auth for public endpoints
           if request.path in ['/health', '/metrics', '/']:
@@ -420,6 +535,21 @@
               }), 503
 
           try:
+              # --------------------------------------------------------
+              # PHASE 3A - STEP 0: Check Rate Limit
+              # --------------------------------------------------------
+              if app.rate_limiter is not None:
+                  if not app.rate_limiter.is_allowed():
+                      logger.warning("Rate limit exceeded")
+                      METRIC_RATE_LIMIT_HITS.inc()
+                      METRIC_INGEST_TOTAL.labels(status='fail_rate_limit').inc()
+                      return jsonify({
+                          "status": "error",
+                          "message": "Too Many Requests - rate limit exceeded",
+                          "correlation_id": correlation_id,
+                          "retry_after": config["INGEST_RATE_WINDOW"]
+                      }), 429
+
               # --------------------------------------------------------
               # STEP 1: Parse JSON
               # --------------------------------------------------------
@@ -471,7 +601,7 @@
                   # Update queue depth gauge metric
                   METRIC_QUEUE_DEPTH.set(queue_len)
 
-                  if queue_len >= config['MAX_INGEST_QUEUE_SIZE']:
+                  if queue_len >= _get_max_ingest_queue_size(app):
                       logger.warning(
                           f"Backpressure triggered: Queue full "
                           f"({queue_len}/{config['MAX_INGEST_QUEUE_SIZE']})"
@@ -482,7 +612,7 @@
                           "message": "Service Unavailable - queue full",
                           "correlation_id": correlation_id,
                           "queue_depth": queue_len,
-                          "queue_limit": config['MAX_INGEST_QUEUE_SIZE']
+                          "queue_limit": _get_max_ingest_queue_size(app)
                       }), 503
 
               except redis.exceptions.RedisError as e:
@@ -575,6 +705,28 @@
                   "redis": "disconnected",
                   "error": str(e)
               }), 503
+
+      @app.route('/admin/config', methods=['GET'])
+      def admin_config():
+          """Return current configuration values for debugging and verification."""
+          try:
+              static_cfg = app.config.get("CONFIG", {})
+              dyn = app.config.get("DYNAMIC_CONFIG")
+              dynamic_cfg = {}
+              if dyn is not None:
+                  try:
+                      dynamic_cfg = dyn.get_all()
+                  except Exception as e:
+                      logger.warning(f"Failed to read dynamic config for admin view: {e}")
+
+              return jsonify({
+                  "dynamic_config_enabled": dyn is not None,
+                  "static": static_cfg,
+                  "dynamic": dynamic_cfg
+              }), 200
+          except Exception as e:
+              logger.error(f"/admin/config failed: {e}", exc_info=True)
+              return jsonify({"error": str(e)}), 500
 
       @app.route('/', methods=['GET'])
       def index():

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Alerter Service (v2.3 - Production Ready)
@@ -51,6 +53,25 @@
   from datetime import datetime
   from prometheus_client import start_http_server, Counter, Gauge, Histogram
   from http.server import HTTPServer, BaseHTTPRequestHandler
+  from typing import Any, Dict, Optional, Tuple
+  from redis_connector import get_redis_pool  # type: ignore
+  from postgres_connector import get_postgres_pool  # type: ignore
+  # Optional DynamicConfig (Phase 1)
+  try:
+      from dynamic_config import DynamicConfig  # type: ignore
+  except Exception:  # pragma: no cover
+      DynamicConfig = None
+  DYN_CONFIG = None  # type: ignore[var-annotated]
+
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, create_span, set_span_attribute  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      create_span = None  # type: ignore
+      set_span_attribute = None  # type: ignore
 
   # =====================================================================
   # PROMETHEUS METRICS
@@ -118,15 +139,25 @@
       'mutt_alerter_processing_list_depth',
       'Current depth of this worker\'s processing list'
   )
-
+  
+  METRIC_ALERTER_QUEUE_DEPTH = Gauge(
+      'mutt_alerter_queue_depth',
+      'Current depth of the alerter ingest queue'
+  )
+  
+  METRIC_ALERTER_SHED_EVENTS_TOTAL = Counter(
+      'mutt_alerter_shed_events_total',
+      'Total events shed by the alerter due to backpressure',
+      ['mode']  # dlq, defer
+  )
+  
   # =====================================================================
   # LOGGING SETUP WITH CORRELATION ID
   # =====================================================================
-
+  
   # Global context for correlation ID in a non-Flask app
   # We use a thread-local storage for this
-  class CorrelationID:
-      _storage = threading.local()
+  class CorrelationID:      _storage = threading.local()
 
       @staticmethod
       def set(cid):
@@ -144,11 +175,17 @@
           return True
 
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="alerter", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
+
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
@@ -240,6 +277,7 @@
 
               # Caching Config
               self.CACHE_RELOAD_INTERVAL = int(os.environ.get('CACHE_RELOAD_INTERVAL', 300))
+              self.DYNAMIC_CONFIG_ENABLED = os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true'
 
               # Alerter Logic Config
               self.UNHANDLED_PREFIX = os.environ.get('UNHANDLED_PREFIX', 'mutt:unhandled')
@@ -279,10 +317,72 @@
           logger.info(f"Configuration validated for worker: {self.POD_NAME}")
 
   # =====================================================================
-  # VAULT SECRET MANAGEMENT
+  # DYNAMIC CONFIG HELPERS (optional)
   # =====================================================================
 
-  def fetch_secrets(config):
+  def _init_dynamic_config_if_enabled(config: "Config", redis_client: redis.Redis) -> None:
+      """Initialize DynamicConfig watcher if enabled and available."""
+      global DYN_CONFIG  # noqa: PLW0603
+      if not getattr(config, 'DYNAMIC_CONFIG_ENABLED', False):
+          return
+      if DynamicConfig is None:
+          logger.warning("DynamicConfig not available; skipping init")
+          return
+      try:
+          dyn = DynamicConfig(redis_client, prefix="mutt:config")
+          dyn.start_watcher()
+          DYN_CONFIG = dyn
+          logger.info("Dynamic configuration initialized for Alerter")
+      except Exception as e:
+          logger.error(f"Failed to initialize DynamicConfig: {e}")
+
+
+  def _dyn_get_int(key: str, fallback: int) -> int:
+      """Return dynamic int value or fallback on error/missing."""
+      try:
+          if DYN_CONFIG:
+              v = DYN_CONFIG.get(key, default=str(fallback))
+              return int(v)
+      except Exception as e:  # pragma: no cover
+          logger.debug(f"DynamicConfig get failed for {key}: {e}")
+      return fallback
+
+
+  def _get_cache_reload_interval(config: "Config") -> int:
+      return _dyn_get_int('cache_reload_interval', config.CACHE_RELOAD_INTERVAL)
+
+
+  def _get_unhandled_threshold(config: "Config") -> int:
+      return _dyn_get_int('unhandled_threshold', config.UNHANDLED_THRESHOLD)
+
+
+  def _get_unhandled_expiry(config: "Config") -> int:
+      return _dyn_get_int('unhandled_expiry_seconds', config.UNHANDLED_EXPIRY_SECONDS)
+  
+  
+  def _get_alerter_queue_warn_threshold() -> int:
+      """Returns the queue depth to start logging warnings."""
+      return _dyn_get_int('alerter_queue_warn', 1000)
+  
+  
+  def _get_alerter_queue_shed_threshold() -> int:
+      """Returns the queue depth to start shedding load."""
+      return _dyn_get_int('alerter_queue_shed', 2000)
+  
+  
+  def _get_alerter_shed_mode() -> str:
+      """Returns the shedding mode (dlq or defer)."""
+      try:
+          if DYN_CONFIG:
+              return DYN_CONFIG.get('alerter_shed_mode', default='dlq')
+      except Exception:  # pragma: no cover
+          pass
+      return 'dlq'
+  
+  # =====================================================================
+  # VAULT SECRET MANAGEMENT
+  # =====================================================================
+  def fetch_secrets(config: "Config") -> Tuple[Any, Dict[str, str]]:
       """Connects to Vault, fetches secrets."""
       try:
           logger.info(f"Connecting to Vault at {config.VAULT_ADDR}...")
@@ -314,17 +414,23 @@
           data = response['data']['data']
 
           secrets = {
-              "REDIS_PASS": data.get('REDIS_PASS'),
+              # Dual-password aware keys
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
               "DB_USER": data.get('DB_USER', config.DB_USER),
+              "DB_PASS_CURRENT": data.get('DB_PASS_CURRENT') or data.get('DB_PASS'),
+              "DB_PASS_NEXT": data.get('DB_PASS_NEXT'),
+              # Back-compat
+              "REDIS_PASS": data.get('REDIS_PASS'),
               "DB_PASS": data.get('DB_PASS'),
               "MOOG_API_KEY": data.get('MOOG_API_KEY')
           }
 
           # Validate required secrets
-          if not secrets["REDIS_PASS"]:
-              raise ValueError("REDIS_PASS not found in Vault")
-          if not secrets["DB_PASS"]:
-              raise ValueError("DB_PASS not found in Vault")
+          if not (secrets.get("REDIS_PASS_CURRENT") or secrets.get("REDIS_PASS_NEXT")):
+              raise ValueError("Redis password not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
+          if not (secrets.get("DB_PASS_CURRENT") or secrets.get("DB_PASS_NEXT")):
+              raise ValueError("DB password not found in Vault (expected DB_PASS_CURRENT or DB_PASS)")
           if not secrets["MOOG_API_KEY"]:
               raise ValueError("MOOG_API_KEY not found in Vault")
 
@@ -336,7 +442,7 @@
           sys.exit(1)
 
 
-  def start_vault_token_renewal(config, vault_client, stop_event):
+  def start_vault_token_renewal(config: "Config", vault_client: Any, stop_event: threading.Event) -> threading.Thread:
       """Starts a background daemon thread for Vault token renewal."""
 
       def renewal_loop():
@@ -377,81 +483,61 @@
   # REDIS CONNECTION
   # =====================================================================
 
-  def connect_to_redis(config, secrets):
-      """Connects to Redis with TLS and connection pooling."""
-      logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
+def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
+    """Connects to Redis with TLS and connection pooling (dual-password aware)."""
+    logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
 
-      try:
-          pool_kwargs = {
-              'host': config.REDIS_HOST,
-              'port': config.REDIS_PORT,
-              'password': secrets["REDIS_PASS"],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'socket_keepalive': True,
-              'max_connections': config.REDIS_MAX_CONNECTIONS,
-          }
+    try:
+        pool = get_redis_pool(
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            tls_enabled=config.REDIS_TLS_ENABLED,
+            ca_cert_path=config.REDIS_CA_CERT_PATH,
+            password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+            password_next=secrets.get('REDIS_PASS_NEXT'),
+            max_connections=config.REDIS_MAX_CONNECTIONS,
+            logger=logger,
+        )
+        r = redis.Redis(connection_pool=pool)
+        r.ping()
+        logger.info("Successfully connected to Redis (dual-password aware)")
+        return r
 
-          if config.REDIS_TLS_ENABLED:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-              if config.REDIS_CA_CERT_PATH:
-                  pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
-
-          pool = redis.ConnectionPool(**pool_kwargs)
-          r = redis.Redis(connection_pool=pool)
-          r.ping()
-
-          logger.info("Successfully connected to Redis")
-          return r
-
-      except Exception as e:
-          logger.error(f"FATAL: Could not connect to Redis: {e}")
-          sys.exit(1)
+    except Exception as e:
+        logger.error(f"FATAL: Could not connect to Redis: {e}")
+        sys.exit(1)
 
   # =====================================================================
   # POSTGRESQL CONNECTION POOL
   # =====================================================================
 
-  def create_postgres_pool(config, secrets):
-      """Creates a PostgreSQL connection pool with TLS."""
-      logger.info(
-          f"Creating PostgreSQL connection pool at {config.DB_HOST}:{config.DB_PORT} "
-          f"(min={config.DB_POOL_MIN_CONN}, max={config.DB_POOL_MAX_CONN})..."
-      )
+def create_postgres_pool(config: "Config", secrets: Dict[str, str]) -> psycopg2.pool.ThreadedConnectionPool:
+    """Creates a PostgreSQL connection pool with TLS (dual-password aware)."""
+    logger.info(
+        f"Creating PostgreSQL connection pool at {config.DB_HOST}:{config.DB_PORT} "
+        f"(min={config.DB_POOL_MIN_CONN}, max={config.DB_POOL_MAX_CONN})..."
+    )
 
-      try:
-          conn_kwargs = {
-              'host': config.DB_HOST,
-              'port': config.DB_PORT,
-              'dbname': config.DB_NAME,
-              'user': secrets['DB_USER'],
-              'password': secrets['DB_PASS'],
-          }
+    try:
+        pool = get_postgres_pool(
+            host=config.DB_HOST,
+            port=config.DB_PORT,
+            dbname=config.DB_NAME,
+            user=secrets.get('DB_USER', config.DB_USER),
+            password_current=secrets.get('DB_PASS_CURRENT') or secrets.get('DB_PASS'),
+            password_next=secrets.get('DB_PASS_NEXT'),
+            minconn=config.DB_POOL_MIN_CONN,
+            maxconn=config.DB_POOL_MAX_CONN,
+            sslmode='require' if config.DB_TLS_ENABLED else None,
+            sslrootcert=config.DB_TLS_CA_CERT_PATH,
+            logger=logger,
+        )
+        logger.info("Successfully created PostgreSQL connection pool (dual-password aware)")
+        return pool
 
-          if config.DB_TLS_ENABLED:
-              conn_kwargs['sslmode'] = 'require'
-              if config.DB_TLS_CA_CERT_PATH:
-                  conn_kwargs['sslrootcert'] = config.DB_TLS_CA_CERT_PATH
-
-          # Create threaded connection pool
-          pool = psycopg2.pool.ThreadedConnectionPool(
-              minconn=config.DB_POOL_MIN_CONN,
-              maxconn=config.DB_POOL_MAX_CONN,
-              **conn_kwargs
-          )
-
-          # Test a connection
-          test_conn = pool.getconn()
-          test_conn.cursor().execute('SELECT 1')
-          pool.putconn(test_conn)
-
-          logger.info("Successfully created PostgreSQL connection pool")
-          return pool
-
-      except Exception as e:
-          logger.error(f"FATAL: Could not create PostgreSQL pool: {e}")
-          sys.exit(1)
+    except Exception as e:
+        logger.error(f"FATAL: Could not create PostgreSQL pool: {e}")
+        sys.exit(1)
 
   # =====================================================================
   # IN-MEMORY CACHE MANAGER
@@ -460,7 +546,7 @@
   class CacheManager:
       """Handles loading and periodic refreshing of DB rules into memory."""
 
-      def __init__(self, config, db_pool):
+      def __init__(self, config: "Config", db_pool: psycopg2.pool.ThreadedConnectionPool):
           self.config = config
           self.db_pool = db_pool
           self.cache_lock = threading.Lock()
@@ -473,7 +559,7 @@
           self.device_teams = {}
           self.regex_cache = {}
 
-      def load_caches(self):
+      def load_caches(self) -> None:
           """Loads all data from Postgres into memory."""
           start_time = time.time()
           logger.info("Starting cache reload from PostgreSQL...")
@@ -544,8 +630,11 @@
               if conn:
                   self.db_pool.putconn(conn)
 
-      def get_caches(self):
-          """Thread-safe way to get the current cache state."""
+      def get_caches(self) -> Dict[str, Any]:
+          """Thread-safe way to get the current cache state.
+
+          Returns a dict with keys: rules, dev_hosts, teams, regex.
+          """
           with self.cache_lock:
               return {
                   "rules": self.alert_rules,
@@ -554,18 +643,19 @@
                   "regex": self.regex_cache
               }
 
-      def start_cache_reloader(self):
+      def start_cache_reloader(self) -> None:
           """Starts a background thread to reload cache periodically."""
-          def reload_loop():
-              logger.info(f"Cache reloader thread started. Reloading every {self.config.CACHE_RELOAD_INTERVAL}s.")
-              while not self.stop_event.wait(self.config.CACHE_RELOAD_INTERVAL):
+      def reload_loop():
+              logger.info(f"Cache reloader thread started. Reloading every {_get_cache_reload_interval(self.config)}s.")
+              # Wait using dynamic interval (re-evaluated each cycle)
+              while not self.stop_event.wait(_get_cache_reload_interval(self.config)):
                   self.load_caches()
               logger.info("Cache reloader thread stopped.")
 
           self.reload_thread = threading.Thread(target=reload_loop, daemon=True, name="CacheReloader")
           self.reload_thread.start()
 
-      def stop(self):
+      def stop(self) -> None:
           """Stops the reloader thread."""
           self.stop_event.set()
           if self.reload_thread:
@@ -578,7 +668,7 @@
   class RuleMatcher:
       """Encapsulates the logic for finding the best rule for a message."""
 
-      def find_best_match(self, message_data, cache):
+      def find_best_match(self, message_data: Dict[str, Any], cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
           """Finds the first, highest-priority rule that matches."""
           msg_body = message_data.get('message', '')
           trap_oid = message_data.get('trap_oid')
@@ -619,7 +709,7 @@
   # HEARTBEAT & JANITOR
   # =====================================================================
 
-  def start_heartbeat(config, redis_client, stop_event):
+  def start_heartbeat(config: "Config", redis_client: redis.Redis, stop_event: threading.Event) -> threading.Thread:
       """Starts a thread to periodically update this worker's heartbeat."""
 
       def heartbeat_loop():
@@ -641,7 +731,7 @@
       return thread
 
 
-  def run_janitor(config, redis_client):
+  def run_janitor(config: "Config", redis_client: redis.Redis) -> None:
       """
       Recovers orphaned messages from dead workers on startup.
       An orphan is a message in a 'processing' list whose worker
@@ -706,8 +796,19 @@
   # CORE PROCESSING LOGIC
   # =====================================================================
 
-  def process_message(message_string, config, secrets, redis_client, db_pool, cache_mgr, matcher):
-      """The complete logic for processing a single message."""
+  def process_message(
+      message_string: str,
+      config: "Config",
+      secrets: Dict[str, str],
+      redis_client: redis.Redis,
+      db_pool: psycopg2.pool.ThreadedConnectionPool,
+      cache_mgr: CacheManager,
+      matcher: RuleMatcher
+  ) -> Optional[str]:
+      """The complete logic for processing a single message.
+
+      Returns the original message string on success, or None on discard/retry.
+      """
       start_time = time.time()
 
       try:
@@ -801,7 +902,15 @@
           return None  # Tell main loop to LREM
 
 
-  def process_handled_event(db_pool, redis_client, rule, message_data, environment, config, secrets):
+  def process_handled_event(
+      db_pool: psycopg2.pool.ThreadedConnectionPool,
+      redis_client: redis.Redis,
+      rule: Dict[str, Any],
+      message_data: Dict[str, Any],
+      environment: str,
+      config: "Config",
+      secrets: Dict[str, str]
+  ) -> None:
       """Logic for an event that matched a rule."""
       hostname = message_data.get('hostname')
       handling_decision = rule['dev_handling'] if environment == 'dev' else rule['prod_handling']
@@ -874,7 +983,13 @@
               db_pool.putconn(conn)
 
 
-  def process_unhandled_event(redis_client, message_data, config, secrets, device_teams):
+  def process_unhandled_event(
+      redis_client: redis.Redis,
+      message_data: Dict[str, Any],
+      config: "Config",
+      secrets: Dict[str, str],
+      device_teams: Dict[str, str]
+  ) -> None:
       """Logic for an event that did NOT match any rule."""
       hostname = message_data.get('hostname', 'unknown')
       message_body = message_data.get('message', '')
@@ -891,14 +1006,14 @@
               2,  # Number of keys
               redis_key,
               triggered_key,
-              config.UNHANDLED_THRESHOLD,
-              config.UNHANDLED_EXPIRY_SECONDS
+              _get_unhandled_threshold(config),
+              _get_unhandled_expiry(config)
           )
 
           # 3. If we hit the threshold *exactly*, generate the meta-alert
           if should_trigger == 1:
               logger.warning(
-                  f"UNHANDLED: Threshold {config.UNHANDLED_THRESHOLD} hit for {hostname}: "
+                  f"UNHANDLED: Threshold {_get_unhandled_threshold(config)} hit for {hostname}: "
                   f"{message_body[:100]}..."
               )
 
@@ -912,8 +1027,8 @@
                   "team_assignment": team,
                   "severity": "Warning",
                   "message_body": (
-                      f"[MUTT] Detected {config.UNHANDLED_THRESHOLD} unhandled messages "
-                      f"in {config.UNHANDLED_EXPIRY_SECONDS}s from '{hostname}'. "
+                      f"[MUTT] Detected {_get_unhandled_threshold(config)} unhandled messages "
+                      f"in {_get_unhandled_expiry(config)}s from '{hostname}'. "
                       f"Sample message: {message_body[:200]}"
                   ),
                   "raw_json": message_data,
@@ -1073,8 +1188,15 @@
 
       # --- 1. Load Config, Secrets, and Connections ---
       config = Config()
+
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="alerter", version="2.3.0")
+
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
+      # Initialize optional dynamic configuration
+      _init_dynamic_config_if_enabled(config, redis_client)
       db_pool = create_postgres_pool(config, secrets)
 
       # --- 2. Start Background Services ---
@@ -1144,14 +1266,56 @@
 
       processing_list = f"{config.ALERTER_PROCESSING_LIST_PREFIX}:{config.POD_NAME}"
 
-      while not stop_event.is_set():
-          message_string = None
-          try:
-              # --- Atomically pop from ingest and push to our processing list ---
-              # This is the core of our "at-least-once" guarantee
-              message_string = redis_client.brpoplpush(
-                  config.INGEST_QUEUE_NAME,
-                  processing_list,
+          while not stop_event.is_set():
+              message_string = None
+              try:
+                  # --- Phase 3: Backpressure Check ---
+                  try:
+                      queue_depth = redis_client.llen(config.INGEST_QUEUE_NAME)
+                      METRIC_ALERTER_QUEUE_DEPTH.set(queue_depth)
+      
+                      shed_threshold = _get_alerter_queue_shed_threshold()
+                      warn_threshold = _get_alerter_queue_warn_threshold()
+      
+                      if queue_depth > shed_threshold:
+                          shed_mode = _get_alerter_shed_mode()
+                          logger.warning(
+                              f"SHEDDING LOAD: Queue depth ({queue_depth}) > threshold ({shed_threshold}). "
+                              f"Mode: {shed_mode}"
+                          )
+      
+                          if shed_mode == 'dlq':
+                              # Shed load by moving directly to DLQ without processing
+                              shed_msg = redis_client.rpop(config.INGEST_QUEUE_NAME)
+                              if shed_msg:
+                                  redis_client.lpush(config.ALERTER_DLQ_NAME, shed_msg)
+                                  METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='dlq').inc()
+                                  logger.info(f"Moved event to DLQ: {shed_msg[:MESSAGE_PREVIEW_LENGTH]}")
+                          
+                          elif shed_mode == 'defer':
+                              # Defer processing by sleeping
+                              defer_time_ms = _dyn_get_int('alerter_defer_sleep_ms', 250)
+                              logger.info(f"Deferring processing for {defer_time_ms}ms.")
+                              time.sleep(defer_time_ms / 1000.0)
+                              METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='defer').inc()
+      
+                          time.sleep(0.05)  # Avoid tight loop when shedding/deferring
+                          continue  # Skip normal processing for this cycle
+      
+                      elif queue_depth > warn_threshold:
+                          logger.warning(
+                              f"BACKPRESSURE WARNING: Ingest queue depth ({queue_depth}) "
+                              f"is over warn threshold ({warn_threshold})."
+                          )
+      
+                  except redis.exceptions.RedisError as e:
+                      logger.error(f"Backpressure check failed: {e}")
+                      # Continue normal operation if check fails
+      
+                  # --- Atomically pop from ingest and push to our processing list ---
+                  # This is the core of our "at-least-once" guarantee
+                  message_string = redis_client.brpoplpush(
+                      config.INGEST_QUEUE_NAME,                  processing_list,
                   timeout=config.BRPOPLPUSH_TIMEOUT
               )
 
@@ -1167,12 +1331,30 @@
               # --- Process the message ---
               # process_message returns the original string on SUCCESS
               # and None on FAILURE (e.g., poison pill, validation error)
-              result = process_message(
-                  message_string,
-                  config, secrets,
-                  redis_client, db_pool,
-                  cache_manager, matcher
-              )
+
+              # Phase 2: Wrap processing in a span for distributed tracing
+              span_func = create_span if create_span is not None else None
+              if span_func:
+                  with span_func(
+                      "process_alert_event",
+                      attributes={
+                          "queue.name": config.INGEST_QUEUE_NAME,
+                          "service.instance": config.POD_NAME,
+                      }
+                  ):
+                      result = process_message(
+                          message_string,
+                          config, secrets,
+                          redis_client, db_pool,
+                          cache_manager, matcher
+                      )
+              else:
+                  result = process_message(
+                      message_string,
+                      config, secrets,
+                      redis_client, db_pool,
+                      cache_manager, matcher
+                  )
 
               # --- Clean up the processing list ---
               if result is not None:

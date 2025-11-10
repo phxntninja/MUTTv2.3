@@ -1,0 +1,34 @@
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Example: escalate criticals differently
+    - matchers:
+        - severity = "critical"
+      receiver: 'pager'
+
+receivers:
+  - name: 'default'
+    # Example email receiver (requires SMTP config in Alertmanager)
+    email_configs:
+      - to: 'alerts@example.com'
+        send_resolved: true
+
+  - name: 'pager'
+    # Example webhook receiver (replace with your on-call system)
+    webhook_configs:
+      - url: 'https://example.net/alert-webhook'
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers: [ 'severity = critical' ]
+    target_matchers: [ 'severity = warning' ]
+    equal: ['alertname']
+
+# Notes:
+# - Configure global SMTP/webhook settings in your Alertmanager deployment.
+# - Match label names/values from docs/prometheus/alerts-v25.yml as needed.
+
