@@ -31,6 +31,8 @@
   - [Troubleshooting](#troubleshooting)
   - [Contributing](#contributing)
   - [License](#license)
+  - [Observability](#observability)
+  - [What’s New in v2.5](#whats-new-in-v25)
 
   ---
 
@@ -970,3 +972,15 @@
 ## Observability
 
 See `docs/observability.md` for OpenTelemetry configuration: running without a backend, disabling OTEL, console exporters, and enabling via a Collector or backend.
+
+## What’s New in v2.5
+
+- Dynamic config APIs (view/update at runtime) and history
+- Zero‑downtime secret rotation (dual‑password connectors)
+- Operator docs: rotation runbook and upgrade guide
+- Test hardening and improved reliability around Redis/Postgres connections
+
+More details:
+- Handoff: `docs/PHASE_2_HANDOFF.md`
+- Feature matrix: `docs/FEATURE_MATRIX.md`
+- Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`

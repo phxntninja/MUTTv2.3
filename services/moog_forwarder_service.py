@@ -574,15 +574,28 @@ def run_janitor(config: "Config", redis_client: redis.Redis) -> None:
   # MOOG WEBHOOK
   # =====================================================================
 
-def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str, str]) -> Tuple[bool, bool, str]:
+def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str, str], circuit_breaker: Optional[Any] = None) -> Tuple[bool, bool, str]:
       """
       Sends an alert to Moogsoft webhook.
+
+      Args:
+          alert_data: Alert data dictionary
+          config: Service configuration
+          secrets: Vault secrets
+          circuit_breaker: Optional CircuitBreaker instance
 
       Returns:
           (success: bool, should_retry: bool, error_message: str)
       """
       correlation_id = alert_data.get('_correlation_id', 'unknown')
       CorrelationID.set(correlation_id)
+
+      # Phase 3A - Check circuit breaker state
+      if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+          if circuit_breaker.is_open():
+              logger.warning("Circuit breaker is OPEN. Skipping Moogsoft request.")
+              METRIC_MOOG_REQUESTS_TOTAL.labels(status='circuit_open').inc()
+              return (False, True, "Circuit breaker OPEN")
 
       try:
           # Build Moog payload
@@ -628,39 +641,70 @@ def send_to_moog(alert_data: Dict[str, Any], config: "Config", secrets: Dict[str
           if response.status_code == 200 or response.status_code == 201:
               logger.info(f"Successfully sent alert to Moog (latency: {latency:.2f}s)")
               METRIC_MOOG_REQUESTS_TOTAL.labels(status='success').inc()
+
+              # Phase 3A - Record success in circuit breaker
+              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                  circuit_breaker.record_success()
+
               return (True, False, None)
 
           elif response.status_code == 429:
               # Rate limited by Moog (shouldn't happen with our rate limiter)
               logger.warning(f"Moog rate limited us (429). Status: {response.status_code}")
               METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_rate_limit').inc()
+
+              # Phase 3A - Record failure in circuit breaker
+              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                  circuit_breaker.record_failure()
+
               return (False, True, f"Moog rate limit: {response.status_code}")
 
           elif response.status_code >= 500:
               # Server error - retry
               logger.error(f"Moog server error: {response.status_code} - {response.text[:200]}")
               METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+
+              # Phase 3A - Record failure in circuit breaker
+              if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+                  circuit_breaker.record_failure()
+
               return (False, True, f"Moog server error: {response.status_code}")
 
           else:
               # Client error (4xx) - don't retry
               logger.error(f"Moog client error: {response.status_code} - {response.text[:200]}")
               METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+              # Don't record client errors in circuit breaker - not a service availability issue
               return (False, False, f"Moog client error: {response.status_code}")
 
       except requests.exceptions.Timeout:
           logger.error(f"Moog request timeout after {config.MOOG_WEBHOOK_TIMEOUT}s")
           METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+
+          # Phase 3A - Record failure in circuit breaker
+          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+              circuit_breaker.record_failure()
+
           return (False, True, "Timeout")
 
       except requests.exceptions.ConnectionError as e:
           logger.error(f"Moog connection error: {e}")
           METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+
+          # Phase 3A - Record failure in circuit breaker
+          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+              circuit_breaker.record_failure()
+
           return (False, True, f"Connection error: {e}")
 
       except Exception as e:
           logger.error(f"Unexpected error sending to Moog: {e}", exc_info=True)
           METRIC_MOOG_REQUESTS_TOTAL.labels(status='fail_http').inc()
+
+          # Phase 3A - Record failure in circuit breaker
+          if circuit_breaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+              circuit_breaker.record_failure()
+
           return (False, True, f"Unexpected error: {e}")
 
 
@@ -680,9 +724,16 @@ def _map_severity(severity_str: str) -> int:
   # CORE PROCESSING LOGIC
   # =====================================================================
 
-  def process_alert(alert_string: str, config: "Config", secrets: Dict[str, str], redis_client: redis.Redis) -> Optional[str]:
+  def process_alert(alert_string: str, config: "Config", secrets: Dict[str, str], redis_client: redis.Redis, circuit_breaker: Optional[Any] = None) -> Optional[str]:
       """
       Process a single alert from the queue.
+
+      Args:
+          alert_string: JSON alert string
+          config: Service configuration
+          secrets: Vault secrets
+          redis_client: Redis client
+          circuit_breaker: Optional CircuitBreaker instance
 
       Returns:
           - alert_string if successful (to LREM from processing list)
@@ -732,7 +783,7 @@ def _map_severity(severity_str: str) -> int:
           return None
 
       # --- Send to Moog ---
-      success, should_retry, error_msg = send_to_moog(alert_data, config, secrets)
+      success, should_retry, error_msg = send_to_moog(alert_data, config, secrets, circuit_breaker)
 
       if success:
           # Success! Remove from processing list
@@ -924,6 +975,25 @@ def _map_severity(severity_str: str) -> int:
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
 
+      # Phase 3A - Initialize circuit breaker
+      circuit_breaker = None
+      if CircuitBreaker is not None and config.CIRCUIT_BREAKER_ENABLED:
+          try:
+              threshold = _get_circuit_breaker_threshold(config)
+              timeout = _get_circuit_breaker_timeout(config)
+              circuit_breaker = CircuitBreaker(
+                  redis_client=redis_client,
+                  name="moogsoft",
+                  failure_threshold=threshold,
+                  timeout_seconds=timeout
+              )
+              logger.info(
+                  f"Circuit breaker enabled: threshold={threshold}, timeout={timeout}s"
+              )
+          except Exception as e:
+              logger.warning(f"Failed to initialize circuit breaker: {e}; continuing without it")
+              circuit_breaker = None
+
       # --- 2. Start Background Services ---
       stop_event = threading.Event()
 
@@ -1003,9 +1073,9 @@ def _map_severity(severity_str: str) -> int:
                           "destination": config.MOOG_WEBHOOK_URL,
                       }
                   ):
-                      result = process_alert(alert_string, config, secrets, redis_client)
+                      result = process_alert(alert_string, config, secrets, redis_client, circuit_breaker)
               else:
-                  result = process_alert(alert_string, config, secrets, redis_client)
+                  result = process_alert(alert_string, config, secrets, redis_client, circuit_breaker)
 
               # --- Clean up the processing list ---
               if result is not None:
