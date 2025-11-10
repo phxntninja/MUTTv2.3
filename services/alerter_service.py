@@ -54,6 +54,8 @@ if True:
   from prometheus_client import start_http_server, Counter, Gauge, Histogram
   from http.server import HTTPServer, BaseHTTPRequestHandler
   from typing import Any, Dict, Optional, Tuple
+  from redis_connector import get_redis_pool  # type: ignore
+  from postgres_connector import get_postgres_pool  # type: ignore
   # Optional DynamicConfig (Phase 1)
   try:
       from dynamic_config import DynamicConfig  # type: ignore
@@ -446,81 +448,61 @@ if True:
   # REDIS CONNECTION
   # =====================================================================
 
-  def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
-      """Connects to Redis with TLS and connection pooling."""
-      logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
+def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
+    """Connects to Redis with TLS and connection pooling (dual-password aware)."""
+    logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
 
-      try:
-          pool_kwargs = {
-              'host': config.REDIS_HOST,
-              'port': config.REDIS_PORT,
-              'password': secrets["REDIS_PASS"],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'socket_keepalive': True,
-              'max_connections': config.REDIS_MAX_CONNECTIONS,
-          }
+    try:
+        pool = get_redis_pool(
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            tls_enabled=config.REDIS_TLS_ENABLED,
+            ca_cert_path=config.REDIS_CA_CERT_PATH,
+            password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+            password_next=secrets.get('REDIS_PASS_NEXT'),
+            max_connections=config.REDIS_MAX_CONNECTIONS,
+            logger=logger,
+        )
+        r = redis.Redis(connection_pool=pool)
+        r.ping()
+        logger.info("Successfully connected to Redis (dual-password aware)")
+        return r
 
-          if config.REDIS_TLS_ENABLED:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-              if config.REDIS_CA_CERT_PATH:
-                  pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
-
-          pool = redis.ConnectionPool(**pool_kwargs)
-          r = redis.Redis(connection_pool=pool)
-          r.ping()
-
-          logger.info("Successfully connected to Redis")
-          return r
-
-      except Exception as e:
-          logger.error(f"FATAL: Could not connect to Redis: {e}")
-          sys.exit(1)
+    except Exception as e:
+        logger.error(f"FATAL: Could not connect to Redis: {e}")
+        sys.exit(1)
 
   # =====================================================================
   # POSTGRESQL CONNECTION POOL
   # =====================================================================
 
-  def create_postgres_pool(config: "Config", secrets: Dict[str, str]) -> psycopg2.pool.ThreadedConnectionPool:
-      """Creates a PostgreSQL connection pool with TLS."""
-      logger.info(
-          f"Creating PostgreSQL connection pool at {config.DB_HOST}:{config.DB_PORT} "
-          f"(min={config.DB_POOL_MIN_CONN}, max={config.DB_POOL_MAX_CONN})..."
-      )
+def create_postgres_pool(config: "Config", secrets: Dict[str, str]) -> psycopg2.pool.ThreadedConnectionPool:
+    """Creates a PostgreSQL connection pool with TLS (dual-password aware)."""
+    logger.info(
+        f"Creating PostgreSQL connection pool at {config.DB_HOST}:{config.DB_PORT} "
+        f"(min={config.DB_POOL_MIN_CONN}, max={config.DB_POOL_MAX_CONN})..."
+    )
 
-      try:
-          conn_kwargs = {
-              'host': config.DB_HOST,
-              'port': config.DB_PORT,
-              'dbname': config.DB_NAME,
-              'user': secrets['DB_USER'],
-              'password': secrets['DB_PASS'],
-          }
+    try:
+        pool = get_postgres_pool(
+            host=config.DB_HOST,
+            port=config.DB_PORT,
+            dbname=config.DB_NAME,
+            user=secrets.get('DB_USER', config.DB_USER),
+            password_current=secrets.get('DB_PASS_CURRENT') or secrets.get('DB_PASS'),
+            password_next=secrets.get('DB_PASS_NEXT'),
+            minconn=config.DB_POOL_MIN_CONN,
+            maxconn=config.DB_POOL_MAX_CONN,
+            sslmode='require' if config.DB_TLS_ENABLED else None,
+            sslrootcert=config.DB_TLS_CA_CERT_PATH,
+            logger=logger,
+        )
+        logger.info("Successfully created PostgreSQL connection pool (dual-password aware)")
+        return pool
 
-          if config.DB_TLS_ENABLED:
-              conn_kwargs['sslmode'] = 'require'
-              if config.DB_TLS_CA_CERT_PATH:
-                  conn_kwargs['sslrootcert'] = config.DB_TLS_CA_CERT_PATH
-
-          # Create threaded connection pool
-          pool = psycopg2.pool.ThreadedConnectionPool(
-              minconn=config.DB_POOL_MIN_CONN,
-              maxconn=config.DB_POOL_MAX_CONN,
-              **conn_kwargs
-          )
-
-          # Test a connection
-          test_conn = pool.getconn()
-          test_conn.cursor().execute('SELECT 1')
-          pool.putconn(test_conn)
-
-          logger.info("Successfully created PostgreSQL connection pool")
-          return pool
-
-      except Exception as e:
-          logger.error(f"FATAL: Could not create PostgreSQL pool: {e}")
-          sys.exit(1)
+    except Exception as e:
+        logger.error(f"FATAL: Could not create PostgreSQL pool: {e}")
+        sys.exit(1)
 
   # =====================================================================
   # IN-MEMORY CACHE MANAGER

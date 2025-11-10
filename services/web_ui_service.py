@@ -53,6 +53,8 @@ if True:
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
   from typing import Any, Dict, Optional, Callable
+  from postgres_connector import get_postgres_pool  # type: ignore
+  from redis_connector import get_redis_pool  # type: ignore
   
   # Dynamic configuration (optional)
   try:
@@ -316,34 +318,21 @@ def create_postgres_pool(app: Flask) -> None:
       )
 
       try:
-          conn_kwargs = {
-              'host': config.DB_HOST,
-              'port': config.DB_PORT,
-              'dbname': config.DB_NAME,
-              'user': secrets.get('DB_USER', config.DB_USER),
-              'password': secrets['DB_PASS'],
-          }
-
-          if config.DB_TLS_ENABLED:
-              conn_kwargs['sslmode'] = 'require'
-              if config.DB_TLS_CA_CERT_PATH:
-                  conn_kwargs['sslrootcert'] = config.DB_TLS_CA_CERT_PATH
-
-          # Create threaded connection pool
-          pool = psycopg2.pool.ThreadedConnectionPool(
+          pool = get_postgres_pool(
+              host=config.DB_HOST,
+              port=config.DB_PORT,
+              dbname=config.DB_NAME,
+              user=secrets.get('DB_USER', config.DB_USER),
+              password_current=secrets.get('DB_PASS_CURRENT') or secrets.get('DB_PASS'),
+              password_next=secrets.get('DB_PASS_NEXT'),
               minconn=config.DB_POOL_MIN_CONN,
               maxconn=config.DB_POOL_MAX_CONN,
-              **conn_kwargs
+              sslmode='require' if config.DB_TLS_ENABLED else None,
+              sslrootcert=config.DB_TLS_CA_CERT_PATH,
+              logger=logger,
           )
-
-          # Test connection
-          test_conn = pool.getconn()
-          test_conn.cursor().execute('SELECT 1')
-          pool.putconn(test_conn)
-
           app.config['DB_POOL'] = pool
-          logger.info("Successfully created PostgreSQL connection pool")
-
+          logger.info("Successfully created PostgreSQL connection pool (dual-password aware)")
       except Exception as e:
           logger.error(f"FATAL: Could not create PostgreSQL pool: {e}", exc_info=True)
           sys.exit(1)
@@ -359,31 +348,20 @@ def create_redis_pool(app: Flask) -> None:
 
       try:
           logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
-
-          pool_kwargs = {
-              'host': config.REDIS_HOST,
-              'port': config.REDIS_PORT,
-              'password': secrets["REDIS_PASS"],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'max_connections': config.REDIS_MAX_CONNECTIONS,
-          }
-
-          if config.REDIS_TLS_ENABLED:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-              if config.REDIS_CA_CERT_PATH:
-                  pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
-
-          pool = redis.ConnectionPool(**pool_kwargs)
+          pool = get_redis_pool(
+              host=config.REDIS_HOST,
+              port=config.REDIS_PORT,
+              tls_enabled=config.REDIS_TLS_ENABLED,
+              ca_cert_path=config.REDIS_CA_CERT_PATH,
+              password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+              password_next=secrets.get('REDIS_PASS_NEXT'),
+              max_connections=config.REDIS_MAX_CONNECTIONS,
+              logger=logger,
+          )
           app.redis_pool = pool
-
           # Test connection
-          r = redis.Redis(connection_pool=pool)
-          r.ping()
-
-          logger.info("Successfully connected to Redis")
-
+          redis.Redis(connection_pool=pool).ping()
+          logger.info("Successfully connected to Redis (dual-password aware)")
       except Exception as e:
           logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)
           sys.exit(1)

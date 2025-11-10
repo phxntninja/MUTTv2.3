@@ -388,32 +388,26 @@ def start_vault_token_renewal(config: "Config", vault_client: Any, stop_event: t
   # REDIS CONNECTION
   # =====================================================================
 
-def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
-    """Connects to Redis with TLS and connection pooling."""
+  from redis_connector import get_redis_pool  # type: ignore
+
+  def connect_to_redis(config: "Config", secrets: Dict[str, str]) -> redis.Redis:
+      """Connects to Redis with TLS and connection pooling (dual-password aware)."""
       logger.info(f"Connecting to Redis at {config.REDIS_HOST}:{config.REDIS_PORT}...")
 
       try:
-          pool_kwargs = {
-              'host': config.REDIS_HOST,
-              'port': config.REDIS_PORT,
-              'password': secrets["REDIS_PASS"],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'socket_keepalive': True,
-              'max_connections': config.REDIS_MAX_CONNECTIONS,
-          }
-
-          if config.REDIS_TLS_ENABLED:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-              if config.REDIS_CA_CERT_PATH:
-                  pool_kwargs['ssl_ca_certs'] = config.REDIS_CA_CERT_PATH
-
-          pool = redis.ConnectionPool(**pool_kwargs)
+          pool = get_redis_pool(
+              host=config.REDIS_HOST,
+              port=config.REDIS_PORT,
+              tls_enabled=config.REDIS_TLS_ENABLED,
+              ca_cert_path=config.REDIS_CA_CERT_PATH,
+              password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+              password_next=secrets.get('REDIS_PASS_NEXT'),
+              max_connections=config.REDIS_MAX_CONNECTIONS,
+              logger=logger,
+          )
           r = redis.Redis(connection_pool=pool)
           r.ping()
-
-          logger.info("Successfully connected to Redis")
+          logger.info("Successfully connected to Redis (dual-password aware)")
           return r
 
       except Exception as e:

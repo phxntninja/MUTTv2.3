@@ -39,6 +39,7 @@ if True:
   from datetime import datetime
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram
+  from redis_connector import get_redis_pool  # type: ignore
   # Dynamic configuration (optional, behind feature flag)
   try:
       from dynamic_config import DynamicConfig  # type: ignore
@@ -341,33 +342,23 @@ if True:
               f"Max Connections: {config['REDIS_MAX_CONNECTIONS']})"
           )
 
-          pool_kwargs = {
-              'host': config['REDIS_HOST'],
-              'port': config['REDIS_PORT'],
-              'password': secrets["REDIS_PASS"],
-              'max_connections': config['REDIS_MAX_CONNECTIONS'],
-              'decode_responses': True,
-              'socket_connect_timeout': 5,
-              'socket_keepalive': True,
-          }
-
-          # Add TLS parameters if enabled
-          if config['REDIS_TLS_ENABLED']:
-              pool_kwargs['ssl'] = True
-              pool_kwargs['ssl_cert_reqs'] = 'required'
-
-              if config['REDIS_CA_CERT_PATH']:
-                  pool_kwargs['ssl_ca_certs'] = config['REDIS_CA_CERT_PATH']
-
-          # Create connection pool
-          pool = redis.ConnectionPool(**pool_kwargs)
+          pool = get_redis_pool(
+              host=config['REDIS_HOST'],
+              port=config['REDIS_PORT'],
+              tls_enabled=config['REDIS_TLS_ENABLED'],
+              ca_cert_path=config.get('REDIS_CA_CERT_PATH'),
+              password_current=secrets.get('REDIS_PASS_CURRENT') or secrets.get('REDIS_PASS'),
+              password_next=secrets.get('REDIS_PASS_NEXT'),
+              max_connections=config['REDIS_MAX_CONNECTIONS'],
+              logger=logger,
+          )
           app.redis_pool = pool
 
           # Test the connection
           test_client = redis.Redis(connection_pool=pool)
           test_client.ping()
 
-          logger.info("Successfully created and tested Redis connection pool")
+          logger.info("Successfully created and tested Redis connection pool (dual-password aware)")
 
       except Exception as e:
           logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)

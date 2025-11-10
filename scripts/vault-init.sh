@@ -98,21 +98,31 @@ create_prod_secrets() {
     INGEST_API_KEY=$(openssl rand -hex 32)
     WEBUI_API_KEY=$(openssl rand -hex 32)
     MOOG_API_KEY=$(openssl rand -hex 32)
-    POSTGRES_PASSWORD=$(openssl rand -base64 32)
+    DB_PASS_CURRENT=$(openssl rand -base64 32)
+    DB_PASS_NEXT=$(openssl rand -base64 32)
+    REDIS_PASS_CURRENT=$(openssl rand -base64 32)
+    REDIS_PASS_NEXT=$(openssl rand -base64 32)
 
     vault kv put "${MOUNT_PATH}/${SECRET_PATH_PROD}" \
         INGEST_API_KEY="$INGEST_API_KEY" \
         WEBUI_API_KEY="$WEBUI_API_KEY" \
         MOOG_API_KEY="$MOOG_API_KEY" \
-        POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
+        DB_USER="mutt_app" \
+        DB_PASS_CURRENT="$DB_PASS_CURRENT" \
+        DB_PASS_NEXT="$DB_PASS_NEXT" \
+        REDIS_PASS_CURRENT="$REDIS_PASS_CURRENT" \
+        REDIS_PASS_NEXT="$REDIS_PASS_NEXT"
 
-    log_info "Production secrets created"
+    log_info "Production secrets created (dual-password scheme)"
     log_warn "IMPORTANT: Save these credentials securely!"
     echo ""
-    echo "  INGEST_API_KEY:     $INGEST_API_KEY"
-    echo "  WEBUI_API_KEY:      $WEBUI_API_KEY"
-    echo "  MOOG_API_KEY:       $MOOG_API_KEY"
-    echo "  POSTGRES_PASSWORD:  $POSTGRES_PASSWORD"
+    echo "  INGEST_API_KEY:      $INGEST_API_KEY"
+    echo "  WEBUI_API_KEY:       $WEBUI_API_KEY"
+    echo "  MOOG_API_KEY:        $MOOG_API_KEY"
+    echo "  DB_PASS_CURRENT:     $DB_PASS_CURRENT"
+    echo "  DB_PASS_NEXT:        $DB_PASS_NEXT"
+    echo "  REDIS_PASS_CURRENT:  $REDIS_PASS_CURRENT"
+    echo "  REDIS_PASS_NEXT:     $REDIS_PASS_NEXT"
     echo ""
 }
 
@@ -126,9 +136,13 @@ create_dev_secrets() {
         INGEST_API_KEY="dev-api-key-123" \
         WEBUI_API_KEY="dev-webui-key-456" \
         MOOG_API_KEY="dev-moog-key-789" \
-        POSTGRES_PASSWORD="dev_password"
+        DB_USER="mutt_app" \
+        DB_PASS_CURRENT="dev_db_pass_current" \
+        DB_PASS_NEXT="dev_db_pass_next" \
+        REDIS_PASS_CURRENT="dev_redis_pass_current" \
+        REDIS_PASS_NEXT="dev_redis_pass_next"
 
-    log_info "Development secrets created"
+    log_info "Development secrets created (dual-password scheme)"
 }
 
 # =====================================================================
