@@ -1,52 +1,67 @@
-# Observability and OpenTelemetry
+# MUTT v2 - Phase 2 Observability Guide
 
-This project can run without an OpenTelemetry (OTEL) backend or collector. By default most SDKs will drop data or no‑op if no exporter is configured. You might see non‑fatal warnings about failed exports, but the app should run normally.
+## Overview
 
-## Running Without a Backend
-- Safe by default: telemetry is dropped; app logic continues.
-- If warnings are noisy, disable the SDK or exporters (below).
+MUTT v2 Phase 2 introduces production-grade observability through **structured JSON logging** and **distributed tracing** with OpenTelemetry. Both features are **opt-in** and fully backwards compatible.
 
-## Disable Completely
-- PowerShell: `$env:OTEL_SDK_DISABLED = "true"`
-- Bash: `export OTEL_SDK_DISABLED=true`
+### Key Features
 
-## Disable Only the Exporters
-- PowerShell: `$env:OTEL_TRACES_EXPORTER = "none"; $env:OTEL_METRICS_EXPORTER = "none"; $env:OTEL_LOGS_EXPORTER = "none"`
-- Bash: `export OTEL_TRACES_EXPORTER=none OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none`
+- ✅ **Structured JSON Logging** (NDJSON format)
+- ✅ **Distributed Tracing** with OpenTelemetry  
+- ✅ **Log-Trace Correlation** (automatic trace_id/span_id injection)
+- ✅ **Auto-instrumentation** (Flask, Redis, PostgreSQL, HTTP clients)
+- ✅ **Manual Spans** for worker services
+- ✅ **Zero Impact** when disabled (default behavior)
+- ✅ **Backwards Compatible** with existing correlation IDs
 
-## Console Exporters (Local Debugging)
-- PowerShell: `$env:OTEL_TRACES_EXPORTER = "console"; $env:OTEL_LOGS_EXPORTER = "console"; $env:OTEL_METRICS_EXPORTER = "none"`
-- Bash: `export OTEL_TRACES_EXPORTER=console OTEL_LOGS_EXPORTER=console OTEL_METRICS_EXPORTER=none`
+---
 
-## Enabling Later (Collector or Backend)
-- Set endpoint only:
-  - gRPC (4317):
-    - PowerShell: `$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"`
-    - Bash: `export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`
-  - HTTP (4318):
-    - PowerShell: `$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"`
-    - Bash: `export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`
-- Optional protocol hints:
-  - gRPC: `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`
-  - HTTP/protobuf: `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`
+## Quick Start
 
-## Edge Cases
-- If your app initializes an exporter eagerly and fails hard when unreachable, either:
-  - Guard init with retries/fallback, or
-  - Use `OTEL_SDK_DISABLED=true` (development), or set exporters to `none`.
+### Minimal Setup (JSON Logging Only)
 
-## Tips
-- Scope: these environment variables affect the current shell session. Put them in your shell profile or project startup scripts if you need them every run.
-- Virtualenv: you can optionally add them to your Python venv activation scripts (e.g., `venv/Scripts/Activate.ps1`) so they apply whenever the venv is activated.
+\`\`\`bash
+# Enable JSON logging
+export LOG_JSON_ENABLED=true
 
-## Virtualenv Activation Defaults
-The venv activation script sets safe OpenTelemetry defaults each time you activate the environment. Control behavior with `MUTT_OTEL_MODE`:
+# Run service
+python services/web_ui_service.py
+\`\`\`
 
-- `disabled` (default): sets `OTEL_SDK_DISABLED=true` and exporters to `none` unless already set.
-- `console`: enables console exporters for traces and logs (`OTEL_TRACES_EXPORTER=console`, `OTEL_LOGS_EXPORTER=console`), metrics exporter defaults to `none` unless set.
-- any other value: leaves existing OTEL variables unchanged.
+Logs will now be output as NDJSON:
 
-Examples (PowerShell):
-- Console mode for this session: `$env:MUTT_OTEL_MODE = "console"; .\venv\Scripts\Activate.ps1`
-- Back to disabled: `$env:MUTT_OTEL_MODE = "disabled"; .\venv\Scripts\Activate.ps1`
-- Use custom OTEL settings: `Remove-Item Env:MUTT_OTEL_MODE -ErrorAction SilentlyContinue; .\venv\Scripts\Activate.ps1`
+\`\`\`json
+{"timestamp":"2025-11-09T12:00:00Z","level":"INFO","message":"Service started","service":"web_ui","correlation_id":"abc-123"}
+\`\`\`
+
+### Full Observability (Logging + Tracing)
+
+\`\`\`bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Enable features
+export LOG_JSON_ENABLED=true
+export OTEL_ENABLED=true
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+# Run service
+python services/web_ui_service.py
+\`\`\`
+
+---
+
+## Configuration Reference
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| \`LOG_JSON_ENABLED\` | \`false\` | Enable JSON logging |
+| \`LOG_LEVEL\` | \`INFO\` | Logging level |
+| \`OTEL_ENABLED\` | \`false\` | Enable tracing |
+| \`OTEL_EXPORTER_OTLP_ENDPOINT\` | \`http://localhost:4317\` | OTLP collector |
+| \`POD_NAME\` | \`unknown\` | Pod identifier |
+
+See full documentation in the repository.
+
