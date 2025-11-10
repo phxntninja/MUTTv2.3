@@ -1,6 +1,6 @@
 MUTT Alerter Service Handoff
 
-This document contains the complete source code and operational documentation for the MUTT Alerter Service (alerter_service.py).
+This document contains the complete source code and operational documentation for the MUTT Alerter Service (services/alerter_service.py).
 
 1. Service Role
 
@@ -18,9 +18,9 @@ Handled Events: Are audited to PostgreSQL and, if required, formatted into a Moo
 
 Unhandled Events: Are tracked atomically in Redis. If a threshold is met, a "meta-alert" is generated and pushed to the alert_queue.
 
-2. Source Code (alerter_service.py)
+2. Source Code (services/alerter_service.py)
 
-Below is the complete, production-ready source code for alerter_service.py (v2.3).
+Below is the complete, production-ready source code for services/alerter_service.py (v2.3).
 
 """
 =====================================================================

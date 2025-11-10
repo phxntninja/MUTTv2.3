@@ -53,7 +53,7 @@ Key Config:
     REDIS_HOST, REDIS_PORT, REDIS_PASS (from Vault)
     API_KEY for source authentication (recommended)
 
-Component #2: Event Processor Service (alerter_service.py)
+Component #2: Event Processor Service (services/alerter_service.py)
 Purpose: Process events from mutt:ingest_queue using "at-least-once" semantics.
 Scaling: Run multiple replicas (pods). Each replica is single-threaded for simplicity; scale horizontally.
 Core Logic:

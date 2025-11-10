@@ -26,7 +26,7 @@ The data flow is a simple, resilient pipeline:
 
 SolarWinds (or any source) sends an HTTP POST (webhook) to the Alerter Service.
 
-Alerter Service (alerter_service.py):
+Alerter Service (services/alerter_service.py):
 
 Validates and normalizes the JSON payload.
 
@@ -68,7 +68,7 @@ This project is documented across the following files:
 
 MUTT_Project_Overview.md (This file): High-level goals, architecture, and configuration.
 
-MUTT_Alerter_Service.md: Contains the complete source code for alerter_service.py.
+MUTT_Alerter_Service.md: Contains the complete source code for services/alerter_service.py.
 
 MUTT_Moog_Forwarder_Service.md: Contains the complete source code for moog_forwarder_service.py.
 

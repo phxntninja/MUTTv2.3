@@ -119,7 +119,7 @@ def webhook():
        METRIC_WEBHOOK_REQUESTS_TOTAL.labels(source='unknown', status='shed').inc()
         return jsonify({"error": "System at capacity"}), 429
 
-Add to alerter_service.py:
+Add to services/alerter_service.py:
 Python
 Copy
 

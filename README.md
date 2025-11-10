@@ -193,7 +193,7 @@
     - Prometheus `/metrics` and `/health` endpoints
     - Redis connection pooling with TLS
 
-  ### 2. **Alerter Service** (`alerter_service.py`)
+  ### 2. **Alerter Service** (`services/alerter_service.py`)
   - **Role**: Core event processing logic ("The Brain")
   - **Ports**: 8081 (metrics), 8082 (health)
   - **Features**:
@@ -324,7 +324,7 @@
   python ingestor_service.py
 
   # Terminal 2: Alerter
-  python alerter_service.py
+  python services/alerter_service.py
 
   # Terminal 3: Moog Forwarder
   python moog_forwarder_service.py
@@ -625,7 +625,7 @@
     'web_ui_service:create_app()'
 
   Alerter & Moog Forwarder (worker services - run directly):
-  python alerter_service.py
+  python services/alerter_service.py
   python moog_forwarder_service.py
 
   Kubernetes Deployment
@@ -791,7 +791,7 @@
 
   mutt/
   ├── ingestor_service.py           # HTTP ingestion endpoint (v2.3)
-  ├── alerter_service.py            # Core event processor (v2.3)
+  ├── services/alerter_service.py   # Core event processor (v2.3)
   ├── moog_forwarder_service.py     # Moogsoft integration (v2.3)
   ├── web_ui_service.py             # Management UI + API (v2.3)
   ├── sql/
@@ -901,7 +901,7 @@
 
   # Manually trigger janitor (restart service)
   kill -TERM $(pgrep -f alerter_service)
-  python alerter_service.py
+  python services/alerter_service.py
 
   Issue: High DLQ depth
   # View messages in DLQ

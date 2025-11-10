@@ -39,3 +39,7 @@ This guide walks operators through upgrading to v2.5 with minimal risk.
 - Update runbooks to reference the config APIs and rotation procedure.
 - Share `docs/FEATURE_MATRIX.md` and `docs/PHASE_2_HANDOFF.md` with stakeholders.
 
+## Breaking Changes
+
+- Alerter service path change: Documentation and commands now reference `services/alerter_service.py` (was `alerter_service.py` at repo root). If you run services directly from source, update any scripts or operator runbooks accordingly. Docker/Kubernetes deployments are already aligned via the Dockerfile entrypoint.
+- Backpressure config keys standardized: Use `alerter_queue_warn_threshold`, `alerter_queue_shed_threshold`, `alerter_shed_mode`, and `alerter_defer_sleep_ms`. Legacy aliases are not supported in v2.5.

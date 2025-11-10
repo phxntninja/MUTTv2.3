@@ -230,7 +230,7 @@ delay = min(
 ---
 
 ### 2. Alerter Service v2.3
-**File:** `alerter_service.py`
+**File:** `services/alerter_service.py`
 
 **Key Features:**
 - ✅ BRPOPLPUSH for crash-safe message processing
@@ -743,7 +743,7 @@ MOOG_RATE_PERIOD=1      # 1-second window
 | File | Version | Lines | Purpose | Status |
 |------|---------|-------|---------|--------|
 | `ingestor_service.py` | v2.3 | ~350 | HTTP ingestion, backpressure, Vault integration | ✅ Complete |
-| `alerter_service.py` | v2.3 | ~900 | Core event processing, rule matching, audit logging | ✅ Complete |
+| `services/alerter_service.py` | v2.3 | ~900 | Core event processing, rule matching, audit logging | ✅ Complete |
 | `moog_forwarder_service.py` | v2.3 | ~750 | Forward to Moog with rate limiting and retry | ✅ Complete |
 | `web_ui_service.py` | v2.3 | ~650 | REST API + metrics dashboard | ✅ Complete |
 
@@ -1133,7 +1133,7 @@ services:
 
   alerter:
     build: .
-    command: python3 alerter_service.py
+    command: python3 services/alerter_service.py
     depends_on: [redis, postgres, vault]
 ```
 
@@ -2040,7 +2040,7 @@ flask_http_request_total
 
 **Files referenced in this document are assumed to exist in the project directory:**
 - `ingestor_service.py` (v2.3)
-- `alerter_service.py` (v2.3)
+- `services/alerter_service.py` (v2.3)
 - `moog_forwarder_service.py` (v2.3)
 - `web_ui_service.py` (v2.3)
 - `mutt_schema v2.1.sql`

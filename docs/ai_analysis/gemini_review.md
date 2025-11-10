@@ -25,7 +25,7 @@ This phase focuses on establishing a consistent, high-quality code standard acro
     *   **Value:** Quick win. Enforces consistency, improves readability, and automates style debates.
 
 *   **Task 1.2: Introduce Static Typing Across All Services**
-    *   **Problem:** The original services (`ingestor_service.py`, `alerter_service.py`, etc.) lack type hints, making the code harder to understand and prone to runtime errors.
+    *   **Problem:** The original services (`services/ingestor_service.py`, `services/alerter_service.py`, etc.) lack type hints, making the code harder to understand and prone to runtime errors.
     *   **Solution:**
         *   Incrementally add Python type hints to all function signatures and key variables in the older services.
         *   Use `mypy` in the CI pipeline to enforce type checking.
@@ -34,7 +34,7 @@ This phase focuses on establishing a consistent, high-quality code standard acro
 *   **Task 1.3: Refactor Configuration Handling in Original Services**
     *   **Problem:** Original services rely on environment variables loaded directly at startup. The new `DynamicConfig` service is not yet integrated.
     *   **Solution:**
-        *   Refactor `ingestor_service.py`, `alerter_service.py`, and `moog_forwarder_service.py` to use the new `DynamicConfig` client.
+        *   Refactor `services/ingestor_service.py`, `services/alerter_service.py`, and `services/moog_forwarder_service.py` to use the new `DynamicConfig` client.
         *   Replace direct `os.getenv()` calls with `config.get()` for all runtime-configurable parameters.
     *   **Value:** High-value refactor. Enables zero-downtime configuration changes and centralizes configuration management.
 
