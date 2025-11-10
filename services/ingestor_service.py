@@ -236,15 +236,18 @@ if True:
 
           data = response['data']['data']
 
-          # Store secrets on app.config
+          # Store secrets on app.config (dual-password aware)
           app.config["SECRETS"] = {
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
+              # Back-compat key
               "REDIS_PASS": data.get('REDIS_PASS'),
               "INGEST_API_KEY": data.get('INGEST_API_KEY')
           }
 
           # Validate required secrets exist
-          if not app.config["SECRETS"]["REDIS_PASS"]:
-              raise ValueError("Required secret REDIS_PASS not found in Vault")
+          if not (app.config["SECRETS"].get("REDIS_PASS_CURRENT") or app.config["SECRETS"].get("REDIS_PASS_NEXT")):
+              raise ValueError("Required Redis secret not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
           if not app.config["SECRETS"]["INGEST_API_KEY"]:
               raise ValueError("Required secret INGEST_API_KEY not found in Vault")
 

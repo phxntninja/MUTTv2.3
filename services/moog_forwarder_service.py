@@ -329,13 +329,16 @@ def fetch_secrets(config: "Config") -> Tuple[Any, Dict[str, str]]:
           data = response['data']['data']
 
           secrets = {
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
+              # Back-compat
               "REDIS_PASS": data.get('REDIS_PASS'),
               "MOOG_API_KEY": data.get('MOOG_API_KEY')
           }
 
           # Validate required secrets
-          if not secrets["REDIS_PASS"]:
-              raise ValueError("REDIS_PASS not found in Vault")
+          if not (secrets.get("REDIS_PASS_CURRENT") or secrets.get("REDIS_PASS_NEXT")):
+              raise ValueError("Redis password not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
           if not secrets["MOOG_API_KEY"]:
               raise ValueError("MOOG_API_KEY not found in Vault")
 

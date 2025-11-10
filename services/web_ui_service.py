@@ -239,16 +239,24 @@ def fetch_secrets(app: Flask) -> None:
           )
           data = response['data']['data']
 
+          # Support dual-password scheme with backward compatibility
           app.config["SECRETS"] = {
-              "REDIS_PASS": data.get('REDIS_PASS'),
+              "DB_USER": data.get('DB_USER', config.DB_USER),
+              "DB_PASS_CURRENT": data.get('DB_PASS_CURRENT') or data.get('DB_PASS'),
+              "DB_PASS_NEXT": data.get('DB_PASS_NEXT'),
+              "REDIS_PASS_CURRENT": data.get('REDIS_PASS_CURRENT') or data.get('REDIS_PASS'),
+              "REDIS_PASS_NEXT": data.get('REDIS_PASS_NEXT'),
+              # Back-compat single keys
               "DB_PASS": data.get('DB_PASS'),
+              "REDIS_PASS": data.get('REDIS_PASS'),
+              # API key
               "WEBUI_API_KEY": data.get('WEBUI_API_KEY', 'dev-key-please-change')
           }
 
-          if not app.config["SECRETS"]["REDIS_PASS"]:
-              raise ValueError("REDIS_PASS not found in Vault")
-          if not app.config["SECRETS"]["DB_PASS"]:
-              raise ValueError("DB_PASS not found in Vault")
+          if not (app.config["SECRETS"].get("REDIS_PASS_CURRENT") or app.config["SECRETS"].get("REDIS_PASS_NEXT")):
+              raise ValueError("Redis password not found in Vault (expected REDIS_PASS_CURRENT or REDIS_PASS)")
+          if not (app.config["SECRETS"].get("DB_PASS_CURRENT") or app.config["SECRETS"].get("DB_PASS_NEXT")):
+              raise ValueError("DB password not found in Vault (expected DB_PASS_CURRENT or DB_PASS)")
 
           logger.info("Successfully loaded secrets from Vault")
 
