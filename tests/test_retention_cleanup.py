@@ -10,6 +10,7 @@ Run with:
 """
 
 import pytest
+import json
 from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime, timedelta
 import sys
@@ -162,7 +163,7 @@ class TestEventAuditLogCleanup:
     """Test suite for event audit log cleanup"""
 
     def test_deletes_from_correct_table(self):
-        """Test that event audit logs are deleted from audit_logs table"""
+        """Test that event audit logs are deleted from event_audit_log table"""
         mock_conn = Mock()
         mock_cursor = Mock()
         mock_cursor.rowcount = 50
@@ -173,10 +174,10 @@ class TestEventAuditLogCleanup:
 
         count = cleanup.cleanup_event_audit_logs()
 
-        # Check that DELETE was executed on audit_logs table
+        # Check that DELETE was executed on event_audit_log table
         call_args = mock_cursor.execute.call_args_list
         sql = call_args[0][0][0]
-        assert 'audit_logs' in sql
+        assert 'event_audit_log' in sql
         assert 'DELETE' in sql
 
     def test_uses_event_audit_retention_period(self):
@@ -203,46 +204,50 @@ class TestEventAuditLogCleanup:
 
 
 class TestDLQCleanup:
-    """Test suite for Dead Letter Queue cleanup"""
+    """Test suite for Dead Letter Queue cleanup (Redis-based)"""
 
-    def test_deletes_from_dlq_table(self):
-        """Test that DLQ records are deleted from dead_letter_queue table"""
+    @patch('retention_cleanup.redis.Redis')
+    def test_removes_old_items_from_redis_dlq(self, mock_redis_cls):
         mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_cursor.rowcount = 100
-        mock_conn.cursor.return_value = mock_cursor
-
-        config = {'dry_run': False, 'dlq_days': 7, 'batch_size': 1000}
+        config = {'dry_run': False, 'dlq_days': 7, 'batch_size': 10}
         cleanup = RetentionCleanup(mock_conn, config)
+
+        # Old item (10 days ago) and new item (now)
+        old_ts = (datetime.utcnow() - timedelta(days=10)).isoformat()
+        new_ts = datetime.utcnow().isoformat()
+        old_item = json.dumps({'failed_at': old_ts})
+        new_item = json.dumps({'failed_at': new_ts})
+
+        mock_redis = Mock()
+        # lindex returns old item first (tail), then after rpop, returns new item
+        mock_redis.lindex.side_effect = [old_item, new_item]
+        mock_redis.rpop.return_value = 1
+        mock_redis_cls.return_value = mock_redis
 
         count = cleanup.cleanup_dlq_messages()
+        assert count == 1
+        assert mock_redis.rpop.called
 
-        # Check table name
-        call_args = mock_cursor.execute.call_args_list
-        sql = call_args[0][0][0]
-        assert 'dead_letter_queue' in sql
-        assert 'DELETE' in sql
-
-    def test_uses_dlq_retention_period(self):
-        """Test that dlq_days is used for retention period"""
+    @patch('retention_cleanup.redis.Redis')
+    def test_uses_dlq_retention_period(self, mock_redis_cls):
         mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_cursor.rowcount = 0
-        mock_conn.cursor.return_value = mock_cursor
-
-        config = {'dry_run': False, 'dlq_days': 14, 'batch_size': 1000}
+        config = {'dry_run': False, 'dlq_days': 14, 'batch_size': 10}
         cleanup = RetentionCleanup(mock_conn, config)
 
+        # Item exactly at cutoff should not be deleted (strict older-than check)
         with patch('retention_cleanup.datetime') as mock_datetime:
-            mock_now = datetime(2025, 11, 10)
-            mock_datetime.utcnow.return_value = mock_now
+            base_now = datetime(2025, 11, 10)
+            mock_datetime.utcnow.return_value = base_now
 
-            cleanup.cleanup_dlq_messages()
+            cutoff = base_now - timedelta(days=14)
+            item = json.dumps({'failed_at': cutoff.isoformat()})
 
-            # Verify 14 days is used
-            expected_cutoff = mock_now - timedelta(days=14)
-            call_args = mock_cursor.execute.call_args_list
-            assert len(call_args) > 0
+            mock_redis = Mock()
+            mock_redis.lindex.return_value = item
+            mock_redis_cls.return_value = mock_redis
+
+            count = cleanup.cleanup_dlq_messages()
+            assert count == 0
 
 
 class TestRunAllCleanups:

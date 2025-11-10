@@ -33,6 +33,8 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
 from typing import Tuple, Dict
+import json
+import redis
 
 # Add parent directories to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'config'))
@@ -43,6 +45,7 @@ from environment import (
     get_retention_config,
     validate_retention_config
 )
+from environment import get_redis_config  # reuse Redis config helpers
 
 # Set up logging
 logging.basicConfig(
@@ -170,7 +173,7 @@ class RetentionCleanup:
         if self.dry_run:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT COUNT(*) FROM audit_logs WHERE timestamp < %s",
+                "SELECT COUNT(*) FROM event_audit_log WHERE event_timestamp < %s",
                 (cutoff_date,)
             )
             count = cursor.fetchone()[0]
@@ -185,11 +188,11 @@ class RetentionCleanup:
             try:
                 cursor.execute(
                     """
-                    DELETE FROM audit_logs
+                    DELETE FROM event_audit_log
                     WHERE id IN (
-                        SELECT id FROM audit_logs
-                        WHERE timestamp < %s
-                        ORDER BY timestamp
+                        SELECT id FROM event_audit_log
+                        WHERE event_timestamp < %s
+                        ORDER BY event_timestamp
                         LIMIT %s
                     )
                     """,
@@ -217,69 +220,79 @@ class RetentionCleanup:
 
     def cleanup_dlq_messages(self) -> int:
         """
-        Clean up old Dead Letter Queue messages.
+        Clean up old Dead Letter Queue (DLQ) messages stored in Redis lists.
+
+        Assumes DLQ messages are JSON objects with a 'failed_at' or 'timestamp'
+        field in ISO 8601 format. Removes items older than the retention cutoff
+        from the tail of the list (oldest-first), up to batch_size per run.
+
+        DLQ keys:
+          - ALERTER_DLQ_NAME (default: mutt:dlq:alerter)
+          - DEAD_LETTER_QUEUE (default: mutt:dlq:dead)
 
         Returns:
-            int: Number of records deleted
-
-        Raises:
-            Exception: If database operation fails
+            int: Number of items removed across DLQ lists
         """
         retention_days = self.config.get('dlq_days', 30)
         cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
-
         logger.info(
-            f"Starting DLQ cleanup "
-            f"(retention: {retention_days} days, cutoff: {cutoff_date})"
+            f"Starting DLQ cleanup (Redis) (retention: {retention_days} days, cutoff: {cutoff_date})"
         )
 
-        if self.dry_run:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM dead_letter_queue WHERE failed_at < %s",
-                (cutoff_date,)
-            )
-            count = cursor.fetchone()[0]
-            cursor.close()
-            logger.info(f"[DRY RUN] Would delete {count} DLQ records")
-            return count
+        # Connect to Redis using environment configuration
+        rconf = get_redis_config()
+        client = redis.Redis(
+            host=rconf.get('host', 'localhost'),
+            port=rconf.get('port', 6379),
+            db=rconf.get('db', 0),
+            password=rconf.get('password', None),
+            socket_keepalive=True
+        )
 
-        # Delete in batches
-        total_deleted = 0
-        while True:
-            cursor = self.conn.cursor()
+        keys = [
+            os.environ.get('ALERTER_DLQ_NAME', 'mutt:dlq:alerter'),
+            os.environ.get('DEAD_LETTER_QUEUE', 'mutt:dlq:dead'),
+        ]
+
+        total_removed = 0
+        for key in keys:
             try:
-                cursor.execute(
-                    """
-                    DELETE FROM dead_letter_queue
-                    WHERE id IN (
-                        SELECT id FROM dead_letter_queue
-                        WHERE failed_at < %s
-                        ORDER BY failed_at
-                        LIMIT %s
-                    )
-                    """,
-                    (cutoff_date, self.batch_size)
-                )
-                deleted = cursor.rowcount
-                self.conn.commit()
-                total_deleted += deleted
+                removed = 0
+                # Remove at most batch_size items per key per run
+                for _ in range(self.batch_size):
+                    item = client.lindex(key, -1)  # oldest (assuming LPUSH semantics)
+                    if not item:
+                        break
+                    try:
+                        if isinstance(item, bytes):
+                            item = item.decode('utf-8', errors='ignore')
+                        data = json.loads(item)
+                        ts_str = data.get('failed_at') or data.get('timestamp')
+                        if not ts_str:
+                            # If no timestamp, stop to avoid deleting unknowns
+                            break
+                        try:
+                            item_ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                        except Exception:
+                            # Unsupported format; stop
+                            break
+                        if item_ts < cutoff_date:
+                            client.rpop(key)
+                            removed += 1
+                        else:
+                            break  # Tail item is newer than cutoff
+                    except Exception:
+                        # If parse fails, stop for safety
+                        break
 
-                if deleted > 0:
-                    logger.info(f"Deleted {deleted} DLQ records (total: {total_deleted})")
-
-                if deleted < self.batch_size:
-                    break
-
+                if removed > 0:
+                    logger.info(f"DLQ '{key}': removed {removed} old messages")
+                total_removed += removed
             except Exception as e:
-                self.conn.rollback()
-                logger.error(f"Error deleting DLQ records: {e}", exc_info=True)
-                raise
-            finally:
-                cursor.close()
+                logger.warning(f"Failed DLQ cleanup for key {key}: {e}")
 
-        logger.info(f"DLQ cleanup complete: {total_deleted} records deleted")
-        return total_deleted
+        logger.info(f"DLQ cleanup complete: {total_removed} messages removed")
+        return total_removed
 
     def run(self) -> Dict[str, int]:
         """

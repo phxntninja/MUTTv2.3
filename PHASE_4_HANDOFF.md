@@ -240,8 +240,8 @@ Implements automated data retention enforcement with configurable policies, Kube
 | Data Type | Default | Min Recommended | Table |
 |-----------|---------|-----------------|-------|
 | Config Audit | 365 days | 365 days | `config_audit_log` |
-| Event Audit | 90 days | 30 days | `audit_logs` |
-| DLQ Messages | 30 days | 7 days | `dead_letter_queue` |
+| Event Audit | 90 days | 30 days | `event_audit_log` |
+| DLQ Messages | 30 days | 7 days | Redis (`mutt:dlq:alerter`, `mutt:dlq:dead`) |
 
 ### Configuration
 
@@ -726,10 +726,69 @@ pytest tests/test_retention_integration.py -v --integration
 
 ### Immediate Actions (Before Production)
 
-1. **Review Configuration**
-   - [ ] Review retention periods with compliance team
-   - [ ] Adjust batch sizes based on database performance testing
-   - [ ] Validate API version deprecation dates
+
+
+1.  **Review Configuration**
+
+    -   [ ] Review retention periods with compliance team
+
+        -   **Clarification: Compliance Team Engagement**
+
+            -   **Driver:** Platform/DevOps lead in collaboration with InfoSec/Compliance
+
+            -   **Expected Output:**
+
+                -   Signed approval document stating retention periods meet regulatory requirements (SOX, GDPR, HIPAA, etc.)
+
+                -   Audit schedule confirmation (e.g., quarterly reviews of audit logs)
+
+                -   Data classification matrix confirming which data types have which retention periods
+
+                -   Exception handling process for legal holds
+
+            -   **Recommended Approach:**
+
+                1.  DevOps prepares retention policy summary (1-page):
+
+                    -   Data types, retention periods, deletion schedule
+
+                    -   Reference: `docs/DATA_RETENTION_GUIDE.md` section "Compliance"
+
+                2.  Compliance reviews against company policy + regulations
+
+                3.  Compliance signs off or requests adjustments
+
+                4.  **Output:** `Compliance_Approval_MUTT_v2.5.pdf` (store with project docs)
+
+    -   [ ] Adjust batch sizes based on database performance testing
+        -   **Clarification: Performance Testing**
+            -   **Who:** QA/Performance Engineering team or DevOps if no dedicated team
+            -   **When:** During staging deployment (before production)
+            -   **How:**
+                -   **Test Scenarios:**
+                    1.  **Audit Logging Load Test (locust or k6)**
+                        -   Simulate 100 concurrent users creating/updating rules
+                        -   Target: <50ms latency for CRUD operations (audit overhead <10ms)
+                    2.  **Retention Cleanup Performance Test**
+                        -   Insert 1M+ old records, run cleanup script
+                        -   Target: Complete in <1 hour, <5% CPU impact on database
+                    3.  **API Version Header Overhead Test**
+                        -   Measure latency difference with/without version headers
+                        -   Target: <1ms overhead for header injection
+            -   **Deliverable:** `Performance_Test_Report_MUTT_v2.5.pdf` with:
+                -   Baseline metrics
+                -   Phase 4 impact analysis
+                -   Pass/fail against SLO targets
+                -   Recommendations for batch size tuning
+
+    -   [ ] Validate API version deprecation dates
+        -   **Clarification: API Deprecation Policy**
+            -   **Current:** Documented in `docs/API_VERSIONING.md`, but now formalized in `docs/API_LIFECYCLE_POLICY.md`.
+            -   **Formal Policy (`docs/API_LIFECYCLE_POLICY.md`):**
+                1.  **VERSION STAGES:** Current, Supported, Deprecated, Removed.
+                2.  **LIFECYCLE TIMELINES:** Minimum 12 months support after deprecation, minimum 6 months notice before removal, breaking changes only in major versions.
+                3.  **COMMUNICATION REQUIREMENTS:** Release notes, email to API key owners, warning headers (`X-API-Deprecated`, `X-API-Sunset`), migration guide.
+                4.  **PROCESS:** Update `VERSION_HISTORY`, use `deprecated_in`/`removed_in` decorators, remove only after sunset date and confirmed no usage.
 
 2. **Deploy in Stages**
    - [ ] Deploy to dev environment first
@@ -758,6 +817,18 @@ pytest tests/test_retention_integration.py -v --integration
    - Local environment setup
    - Dynamic config management
    - Service health checks
+   - **Clarification: Developer CLI Prioritization**
+     -   **Tier 1 (Immediate Value - Build First):**
+         1.  `muttdev config get/set`: Saves 5-10 mins per config change, reduces errors.
+         2.  `muttdev logs <service>`: Saves 2-3 mins per troubleshooting session.
+         3.  `muttdev health`: Quick status check, catches issues immediately.
+     -   **Tier 2 (Nice to Have - Build Second):**
+         1.  `muttdev setup`: Reduces onboarding to 15 minutes.
+         2.  `muttdev test`: Standardizes testing workflow.
+     -   **Tier 3 (Future):**
+         1.  `muttdev deploy`: Automates common deployment tasks.
+         2.  `muttdev audit`: Standardizes audit reports.
+     -   **Implementation Order:** `logs` -> `health` -> `config` -> `setup`.
 
 2. **Architecture Decision Records (ADRs)**
    - Document key technical decisions
@@ -765,11 +836,32 @@ pytest tests/test_retention_integration.py -v --integration
    - Redis vs Kafka choice
    - Vault vs K8s Secrets
    - Single-threaded workers
+   - **Clarification: ADR Process Going Forward**
+     -   **When to Write an ADR:** Technology choice, architecture pattern change, significant trade-off, security/compliance decision (not for bug fixes, minor refactors, config changes).
+     -   **ADR Template:** `docs/adr/template.md` (Title, Status, Context, Decision, Consequences, Alternatives).
+     -   **Review Process:** Author creates PR, team reviews, approval = merge to main, ADRs immutable after acceptance.
+     -   **Living Index:** `docs/adr/README.md` lists all ADRs with status.
+     -   **Initial ADRs to Write (Phase 5):**
+         -   ADR-006: Redis vs Kafka for Message Queue
+         -   ADR-007: Vault vs Kubernetes Secrets
+         -   ADR-008: Single-threaded vs Multi-threaded Workers
+         -   ADR-009: PostgreSQL vs Elasticsearch for Audit Logs
 
 3. **E2E Test Suite**
    - Full pipeline testing: ingest → alerter → forwarder → DLQ
    - Load testing for backpressure validation
    - Integration tests for audit logging
+   - **Clarification: E2E Test Environment Specifications**
+     -   **Environment:** `mutt-staging` (dedicated staging environment mirroring production)
+     -   **Components:** Kubernetes cluster (3 nodes min), PostgreSQL 12+ (with test data), Redis 6+ (ephemeral), Prometheus + Grafana (with Phase 4 rules), Mock Moogsoft endpoint.
+     -   **Test Data:** 1000 sample alert rules, 100 sample hosts, 10 team mappings, synthetic alert traffic generator.
+     -   **Reset Mechanism:** Database snapshot restore, Redis `FLUSHALL`, Kubernetes rolling restart.
+     -   **Access:** CI/CD pipeline has `kubectl` access, developers have read-only access, automated tests run nightly + on PR.
+     -   **E2E Test Scenarios:**
+         1.  **Full Alert Pipeline:** Inject trap, verify enrichment, forwarding, audit log, assert latency <5s.
+         2.  **DLQ Flow:** Inject malformed alert, verify lands in DLQ, metrics incremented, alert fired.
+         3.  **Hot Reload:** Update rule via API, verify audit log, services pick up change, new rule processed.
+         4.  **Backpressure:** Overwhelm alerter, verify queue depth, backpressure kicks in, no data loss.
 
 4. **Enhanced Dashboards**
    - Update Grafana dashboards with normalized labels
@@ -778,15 +870,48 @@ pytest tests/test_retention_integration.py -v --integration
 
 ### Optional Enhancements
 
-1. **Audit Log Archival**
-   - Implement S3/GCS archival before deletion
-   - Add archival schedule to retention CronJob
-   - Document restore procedures
+
+
+1.  **Audit Log Archival**
+
+    -   Implement S3/GCS archival before deletion
+
+    -   Add archival schedule to retention CronJob
+
+    -   Document restore procedures
+
+    -   **Clarification: Prioritization Criteria**
+
+        -   **Criteria (weighted):** Compliance Risk (40%), Developer Pain (30%), Operational Impact (20%), Implementation Cost (10%).
+
+        -   **Scoring:** High (3), Medium (2), Low (1).
+
+        -   **Scored Enhancements:**
+
+            -   Audit Log Archival: Total 2.5 (P1)
+
+            -   Legal Hold Support: Total 2.6 (P1)
+
+            -   Version Usage Analytics: Total 1.6 (P2)
+
+            -   Advanced Audit Search: Total 2.1 (P2)
+
+        -   **Recommendation:** P1 (Next Sprint): Audit Log Archival, Legal Hold Support. P2 (Future Sprint): Version Usage Analytics, Advanced Audit Search. Revisit after 3 months of production data.
 
 2. **Version Usage Analytics**
    - Add Prometheus metrics for version usage
    - Track which clients use which versions
    - Dashboard showing version adoption
+   - **Clarification: Resource Allocation**
+     -   **Recommended Team Structure:**
+         -   **Audit Log Archival:** Owner: DevOps Engineer (5-8 days)
+         -   **Legal Hold Support:** Owner: Backend Developer (3-5 days)
+         -   **Version Usage Analytics:** Owner: Backend Developer (2-3 days)
+         -   **Advanced Audit Search:** Owner: Backend Developer + DevOps (10-15 days)
+     -   **Resource Allocation Model:**
+         -   **Option 1: Dedicated Sprint:** Assign 1 backend dev + 1 devops engineer for 2 weeks.
+         -   **Option 2: Continuous Improvement (Recommended):** 20% time allocation for 2 engineers, rolling basis (1 enhancement per sprint).
+         -   **Option 3: Outsource to Consultants:** If internal team bandwidth limited.
 
 3. **Advanced Audit Search**
    - Elasticsearch integration for full-text search

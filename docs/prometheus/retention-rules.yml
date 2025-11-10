@@ -218,7 +218,7 @@ groups:
   - record: mutt:retention:data_volume:bytes
     expr: |
       sum by (type) (
-        mutt_table_size_bytes{table=~"config_audit_log|audit_logs|dead_letter_queue"}
+        mutt_table_size_bytes{table=~"config_audit_log|event_audit_log"}
       )
 
   # Deletion efficiency (% of old data removed vs expected)

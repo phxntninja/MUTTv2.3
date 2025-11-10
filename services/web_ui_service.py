@@ -59,20 +59,20 @@ if True:
   
   # Dynamic configuration (optional)
   try:
-      from dynamic_config import DynamicConfig  # type: ignore
+      from services.dynamic_config import DynamicConfig  # type: ignore
   except Exception:  # pragma: no cover - optional import safety
       DynamicConfig = None  # type: ignore
   
   # Audit logger for configuration changes (optional import)
   try:
-      from audit_logger import log_config_change, query_audit_logs  # type: ignore
+      from services.audit_logger import log_config_change, query_audit_logs  # type: ignore
   except Exception:  # pragma: no cover - optional import safety
       log_config_change = None  # type: ignore
       query_audit_logs = None  # type: ignore
 
   # API Versioning (Phase 4.2)
   try:
-      from api_versioning import (  # type: ignore
+      from services.api_versioning import (  # type: ignore
           add_version_headers,
           get_version_info,
           get_api_version,
@@ -93,8 +93,8 @@ if True:
 
   # Phase 2 Observability (opt-in)
   try:
-      from logging_utils import setup_json_logging  # type: ignore
-      from tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
+      from services.logging_utils import setup_json_logging  # type: ignore
+      from services.tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
   except ImportError:  # pragma: no cover - optional imports
       setup_json_logging = None  # type: ignore
       setup_tracing = None  # type: ignore

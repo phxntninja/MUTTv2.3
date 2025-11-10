@@ -34,16 +34,16 @@ MUTT v2.5 implements automated data retention policies to ensure compliance with
 - Required for SOX, GDPR, and other compliance frameworks
 - **Recommendation:** Retain for at least 1 year
 
-**Event Audit Logs** (`audit_logs` table)
+**Event Audit Logs** (`event_audit_log` table)
 - Records alert processing events, forwarding attempts, enrichment
 - Used for debugging and operational analysis
 - Grows quickly with high alert volumes
 - **Recommendation:** 30-90 days based on troubleshooting needs
 
-**DLQ Messages** (`dead_letter_queue` table)
-- Failed alerts that couldn't be processed or forwarded
-- Includes error details and original message
-- Can be replayed after fixing issues
+**DLQ Messages** (Redis lists: `mutt:dlq:alerter`, `mutt:dlq:dead`)
+- Failed alerts that couldn't be processed or forwarded (stored in Redis)
+- Include error details and original message (JSON with `failed_at` timestamp)
+- Can be replayed after fixing issues by the Remediation service
 - **Recommendation:** 7-30 days for investigation window
 
 ---
@@ -63,9 +63,9 @@ RETENTION_DRY_RUN=false
 
 # Retention periods (days)
 RETENTION_AUDIT_DAYS=365        # Configuration audit logs
-RETENTION_EVENT_AUDIT_DAYS=90   # Event audit logs
+RETENTION_EVENT_AUDIT_DAYS=90   # Event audit logs (PostgreSQL)
 RETENTION_METRICS_DAYS=90       # Prometheus metrics
-RETENTION_DLQ_DAYS=30           # Dead letter queue
+RETENTION_DLQ_DAYS=30           # Dead letter queue (Redis)
 
 # Cleanup batch size (records per transaction)
 RETENTION_CLEANUP_BATCH_SIZE=1000
@@ -202,6 +202,20 @@ mutt_retention_policy_days{type="dlq"}
 mutt_retention_cleanup_last_run_timestamp_seconds
 ```
 
+### DLQ Retention (Redis)
+
+DLQ items are stored in Redis lists:
+- `ALERTER_DLQ_NAME` (default: `mutt:dlq:alerter`)
+- `DEAD_LETTER_QUEUE` (default: `mutt:dlq:dead`)
+
+The cleanup script inspects the oldest item in each list and removes items whose
+timestamp (`failed_at` or `timestamp`) is older than the configured retention.
+Items without a timestamp are skipped for safety.
+
+Runbook:
+- To flush DLQs manually: `redis-cli DEL mutt:dlq:alerter mutt:dlq:dead`
+- To inspect tail message: `redis-cli LINDEX mutt:dlq:alerter -1`
+
 **Example Queries:**
 
 ```promql
@@ -325,7 +339,7 @@ ERROR: permission denied for table config_audit_log
 ```
 **Fix:** Grant DELETE permission to database user:
 ```sql
-GRANT DELETE ON config_audit_log, audit_logs, dead_letter_queue TO mutt;
+GRANT DELETE ON config_audit_log, event_audit_log TO mutt;
 ```
 
 **Out of Memory:**
@@ -434,10 +448,10 @@ UNION ALL
 SELECT
   'event_audit' as type,
   COUNT(*),
-  MIN(timestamp),
-  MAX(timestamp),
-  EXTRACT(DAY FROM NOW() - MIN(timestamp))
-FROM audit_logs;
+  MIN(event_timestamp),
+  MAX(event_timestamp),
+  EXTRACT(DAY FROM NOW() - MIN(event_timestamp))
+FROM event_audit_log;
 EOF
 ```
 
