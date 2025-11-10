@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 if True:
   """
   =====================================================================
@@ -47,14 +47,14 @@ if True:
   import psycopg2
   import psycopg2.pool
   import psycopg2.extras
-  from flask import Flask, jsonify, Response, request, render_template_string
+  from flask import Flask, jsonify, Response, request, render_template_string, current_app
   from datetime import datetime, timedelta
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
   from typing import Any, Dict, Optional, Callable
-  from postgres_connector import get_postgres_pool  # type: ignore
-  from redis_connector import get_redis_pool  # type: ignore
+  from services.postgres_connector import get_postgres_pool  # type: ignore
+  from services.redis_connector import get_redis_pool  # type: ignore
   
   # Dynamic configuration (optional)
   try:
@@ -374,9 +374,9 @@ def create_redis_pool(app: Flask) -> None:
           logger.error(f"FATAL: Could not create Redis connection pool: {e}", exc_info=True)
           sys.exit(1)
 
-  # =====================================================================
-  # AUTHENTICATION DECORATOR
-  # =====================================================================
+# =====================================================================
+# AUTHENTICATION DECORATOR
+# =====================================================================
 
 def require_api_key(f: Callable) -> Callable:
       """Decorator to require API key authentication."""
@@ -384,7 +384,7 @@ def require_api_key(f: Callable) -> Callable:
       def decorated_function(*args, **kwargs):
           # Get API key from header or query parameter
           api_key = request.headers.get('X-API-KEY') or request.args.get('api_key')
-          expected_key = request.app.config["SECRETS"]["WEBUI_API_KEY"]
+          expected_key = current_app.config["SECRETS"]["WEBUI_API_KEY"]
 
           # Use constant-time comparison
           if not api_key or not secrets_module.compare_digest(api_key, expected_key):
@@ -395,31 +395,31 @@ def require_api_key(f: Callable) -> Callable:
 
       return decorated_function
 
-  # =====================================================================
-  # METRICS CACHE
-  # =====================================================================
+# =====================================================================
+# METRICS CACHE
+# =====================================================================
 
-  class MetricsCache:
-      """Simple time-based cache for metrics to reduce Redis load."""
+class MetricsCache:
+    """Simple time-based cache for metrics to reduce Redis load."""
 
-      def __init__(self, ttl: int = 5) -> None:
-          self.ttl = ttl
-          self.data = None
-          self.timestamp = 0
-          self.lock = threading.Lock()
+    def __init__(self, ttl: int = 5) -> None:
+        self.ttl = ttl
+        self.data = None
+        self.timestamp = 0
+        self.lock = threading.Lock()
 
-      def get(self) -> Optional[Any]:
-          """Get cached data if still valid."""
-          with self.lock:
-              if self.data and (time.time() - self.timestamp) < self.ttl:
-                  return self.data
-              return None
+    def get(self) -> Optional[Any]:
+        """Get cached data if still valid."""
+        with self.lock:
+            if self.data and (time.time() - self.timestamp) < self.ttl:
+                return self.data
+            return None
 
-      def set(self, data: Any) -> None:
-          """Cache new data with current timestamp."""
-          with self.lock:
-              self.data = data
-              self.timestamp = time.time()
+    def set(self, data: Any) -> None:
+        """Cache new data with current timestamp."""
+        with self.lock:
+            self.data = data
+            self.timestamp = time.time()
 
   # =====================================================================
   # UTILITY FUNCTIONS
@@ -1357,7 +1357,7 @@ def setup_signal_handlers(app: Flask) -> None:
   # HTML DASHBOARD TEMPLATE
   # =====================================================================
 
-  HTML_DASHBOARD = """
+HTML_DASHBOARD = """
   <!DOCTYPE html>
   <html lang="en">
   <head>
@@ -1595,27 +1595,28 @@ def setup_signal_handlers(app: Flask) -> None:
   # MAIN ENTRY POINT
   # =====================================================================
 
-  if __name__ == '__main__':
-      app = create_app()
-      setup_signal_handlers(app)
-      port = app.config["MUTT_CONFIG"].PORT
+if __name__ == '__main__':
+  app = create_app()
+  setup_signal_handlers(app)
+  port = app.config["MUTT_CONFIG"].PORT
 
-      logger.info("=" * 70)
-      logger.info("MUTT Web UI & API Service v2.3 - Production Ready")
-      logger.info("=" * 70)
-      logger.warning("Running in DEBUG mode - DO NOT USE IN PRODUCTION")
-      logger.info("")
-      logger.info("For production, use Gunicorn:")
-      logger.info("  gunicorn --bind 0.0.0.0:8090 --workers 4 \\")
-      logger.info("           --timeout 30 --worker-class sync \\")
-      logger.info("           'web_ui_service:create_app()'")
-      logger.info("")
-      logger.info(f"Dashboard: http://localhost:{port}/?api_key=YOUR_KEY")
-      logger.info(f"API Docs: See code comments for full API reference")
-      logger.info("=" * 70)
+  logger.info("=" * 70)
+  logger.info("MUTT Web UI & API Service v2.3 - Production Ready")
+  logger.info("=" * 70)
+  logger.warning("Running in DEBUG mode - DO NOT USE IN PRODUCTION")
+  logger.info("")
+  logger.info("For production, use Gunicorn:")
+  logger.info("  gunicorn --bind 0.0.0.0:8090 --workers 4 \\")
+  logger.info("           --timeout 30 --worker-class sync \\")
+  logger.info("           'web_ui_service:create_app()'")
+  logger.info("")
+  logger.info(f"Dashboard: http://localhost:{port}/?api_key=YOUR_KEY")
+  logger.info(f"API Docs: See code comments for full API reference")
+  logger.info("=" * 70)
 
-      app.run(host='0.0.0.0', port=port, debug=True)
+  app.run(host='0.0.0.0', port=port, debug=True)
 
+_TAIL_DOC = """
   ---
   Key Improvements in v2.3
 
@@ -1716,3 +1717,4 @@ def setup_signal_handlers(app: Flask) -> None:
     -d '{"hostname": "dev-switch1"}'
 
   This is now 100% production-ready with full CRUD functionality! 🚀
+"""

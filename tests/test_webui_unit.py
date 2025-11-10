@@ -610,11 +610,19 @@ class TestDynamicConfigAPI:
             app.config["SECRETS"] = dict(mock_secrets)
         monkeypatch.setattr(webui, "fetch_secrets", fake_fetch_secrets)
 
+        # Minimal env so Config validation passes
+        monkeypatch.setenv("VAULT_ADDR", "http://localhost:8200")
+        monkeypatch.setenv("VAULT_ROLE_ID", "test-role")
+
         # Stub Redis/DB pool creators
         def fake_create_redis_pool(app):
             class DummyPool: pass
             app.redis_pool = DummyPool()
         monkeypatch.setattr(webui, "create_redis_pool", fake_create_redis_pool)
+
+        # Avoid real redis client creation during DynamicConfig init
+        # Provide a stub redis module with a static Redis constructor
+        monkeypatch.setattr(webui, "redis", type("R", (), {"Redis": staticmethod(lambda **kwargs: object())}))
 
         def fake_create_postgres_pool(app):
             class DummyPool:
