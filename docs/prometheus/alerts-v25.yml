@@ -1,0 +1,46 @@
+groups:
+  - name: mutt-v25
+    rules:
+      - alert: MUTTIngestQueueHigh
+        expr: mutt_ingest_queue_depth > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingest queue depth is high (>10k)"
+          description: "mutt_ingest_queue_depth={{ $value }}"
+
+      - alert: MUTTUnhandledMetaAlertsSpike
+        expr: rate(mutt_alerter_unhandled_meta_alerts_total[10m]) > 5
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unhandled meta-alerts spiking"
+          description: "rate over 10m is {{ $value }}"
+
+      - alert: MUTTMoogRateLimitHitsHigh
+        expr: rate(mutt_moog_rate_limit_hits_total[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Moog forwarder hitting rate limit"
+          description: "hits rate over 5m is {{ $value }}"
+
+      - alert: MUTTServiceDownWebUI
+        expr: up{job="mutt-webui"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Web UI service down"
+
+      - alert: MUTTServiceDownIngestor
+        expr: up{job="mutt-ingestor"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ingestor service down"
+

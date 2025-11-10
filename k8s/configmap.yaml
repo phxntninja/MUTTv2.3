@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mutt-config
+data:
+  SERVER_PORT_INGESTOR: "8080"
+  SERVER_PORT_ALERTER: "8081"
+  SERVER_PORT_MOOG_FORWARDER: "8082"
+  SERVER_PORT_WEBUI: "8090"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_TLS_ENABLED: "false"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_NAME: "mutt"
+  DB_USER: "mutt_app"
+  DB_TLS_ENABLED: "false"
+  VAULT_ADDR: "http://vault:8200"
+  VAULT_SECRETS_PATH: "secret/mutt/prod"

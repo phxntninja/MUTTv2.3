@@ -15,8 +15,15 @@
 
 # =====================================================================
 # Base Stage - Common dependencies
+#
+# Multi-arch note:
+# - This Dockerfile pins a linux/amd64 digest for reproducibility.
+# - To build for other architectures, use buildx and override platform:
+#     docker buildx build --platform linux/arm64 -t your/repo:mutt-2.5 --target webui .
+# - Consider pinning the corresponding digest for your target arch.
 # =====================================================================
-FROM python:3.9-slim as base
+# Pinned base image for reproducibility (linux/amd64)
+FROM python:3.10-slim@sha256:2ade04f16d1e0bbde15b0a5a2586e180c060df230333e0d951660020557fcba4 as base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

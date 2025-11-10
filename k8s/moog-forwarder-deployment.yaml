@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-moog-forwarder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mutt-moog-forwarder
+  template:
+    metadata:
+      labels:
+        app: mutt-moog-forwarder
+    spec:
+      containers:
+        - name: moog-forwarder
+          image: mutt-moog-forwarder:2.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: mutt-config
+            - secretRef:
+                name: mutt-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-moog-forwarder
+spec:
+  selector:
+    app: mutt-moog-forwarder
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082

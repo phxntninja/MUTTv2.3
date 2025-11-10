@@ -55,6 +55,12 @@ if True:
       setup_tracing = None  # type: ignore
       extract_tracecontext = None  # type: ignore
 
+  # Phase 3A - Advanced Reliability (Rate Limiter)
+  try:
+      from rate_limiter import RedisSlidingWindowRateLimiter  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      RedisSlidingWindowRateLimiter = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -74,6 +80,12 @@ if True:
       'mutt_ingest_latency_seconds',
       'Request processing latency',
       buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+  )
+
+  # Phase 3A - Rate Limiting Metrics
+  METRIC_RATE_LIMIT_HITS = Counter(
+      'mutt_ingest_rate_limit_hits_total',
+      'Total number of requests rejected due to rate limiting'
   )
 
   # =====================================================================
@@ -143,6 +155,11 @@ if True:
 
               # Input Validation
               "REQUIRED_FIELDS": os.environ.get('REQUIRED_FIELDS', 'hostname,message,timestamp'),
+
+              # Phase 3A - Rate Limiting
+              "RATE_LIMIT_ENABLED": os.environ.get('RATE_LIMIT_ENABLED', 'true').lower() == 'true',
+              "INGEST_MAX_RATE": int(os.environ.get('INGEST_MAX_RATE', 1000)),  # Requests per window
+              "INGEST_RATE_WINDOW": int(os.environ.get('INGEST_RATE_WINDOW', 60)),  # Window in seconds
 
               # Dynamic Config (Phase 1 - optional)
               "DYNAMIC_CONFIG_ENABLED": os.environ.get('DYNAMIC_CONFIG_ENABLED', 'false').lower() == 'true',
@@ -433,6 +450,25 @@ if True:
       # Initialize optional dynamic configuration
       _init_dynamic_config(app)
 
+      # Phase 3A - Initialize rate limiter
+      app.rate_limiter = None
+      if RedisSlidingWindowRateLimiter is not None and app.config["CONFIG"]["RATE_LIMIT_ENABLED"]:
+          try:
+              redis_client = redis.Redis(connection_pool=app.redis_pool)
+              app.rate_limiter = RedisSlidingWindowRateLimiter(
+                  redis_client=redis_client,
+                  key="mutt:rate_limit:ingestor",
+                  max_requests=app.config["CONFIG"]["INGEST_MAX_RATE"],
+                  window_seconds=app.config["CONFIG"]["INGEST_RATE_WINDOW"]
+              )
+              logger.info(
+                  f"Rate limiter enabled: {app.config['CONFIG']['INGEST_MAX_RATE']} requests "
+                  f"per {app.config['CONFIG']['INGEST_RATE_WINDOW']} seconds"
+              )
+          except Exception as e:
+              logger.warning(f"Failed to initialize rate limiter: {e}; continuing without it")
+              app.rate_limiter = None
+
       # Initialize Prometheus metrics
       PrometheusMetrics(app)
       logger.info("Prometheus metrics endpoint initialized at /metrics")
@@ -499,6 +535,21 @@ if True:
               }), 503
 
           try:
+              # --------------------------------------------------------
+              # PHASE 3A - STEP 0: Check Rate Limit
+              # --------------------------------------------------------
+              if app.rate_limiter is not None:
+                  if not app.rate_limiter.is_allowed():
+                      logger.warning("Rate limit exceeded")
+                      METRIC_RATE_LIMIT_HITS.inc()
+                      METRIC_INGEST_TOTAL.labels(status='fail_rate_limit').inc()
+                      return jsonify({
+                          "status": "error",
+                          "message": "Too Many Requests - rate limit exceeded",
+                          "correlation_id": correlation_id,
+                          "retry_after": config["INGEST_RATE_WINDOW"]
+                      }), 429
+
               # --------------------------------------------------------
               # STEP 1: Parse JSON
               # --------------------------------------------------------

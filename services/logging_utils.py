@@ -112,8 +112,9 @@ class NDJSONFormatter(logging.Formatter):
         }
 
         # Add correlation ID (from existing CorrelationIdFilter)
-        correlation_id = getattr(record, "correlation_id", None)
-        if correlation_id:
+        # Prefer explicit attribute if present on the record, even if falsy
+        correlation_id = record.__dict__.get("correlation_id", getattr(record, "correlation_id", None))
+        if correlation_id is not None:
             log_entry["correlation_id"] = correlation_id
         else:
             # Fallback to "system" if not in request context
@@ -280,6 +281,8 @@ def setup_json_logging(
 
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
+    # Also remove existing filters to avoid cross-test contamination
+    logger.filters.clear()
 
     # Set log level
     logger.setLevel(getattr(logging, log_level, logging.INFO))

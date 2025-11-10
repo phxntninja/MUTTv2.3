@@ -33,6 +33,9 @@
   - [License](#license)
   - [Observability](#observability)
   - [What’s New in v2.5](#whats-new-in-v25)
+  - [API Docs](#api-docs)
+  - [Runbook](#runbook)
+  - [Dashboards & Alerts](#dashboards--alerts)
 
   ---
 
@@ -984,3 +987,24 @@ More details:
 - Handoff: `docs/PHASE_2_HANDOFF.md`
 - Feature matrix: `docs/FEATURE_MATRIX.md`
 - Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
+
+## API Docs
+
+- Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
+
+## Runbook
+
+- On‑Call Runbook: `docs/ONCALL_RUNBOOK.md`
+
+## Dashboards & Alerts
+
+- Grafana dashboard JSON: `docs/grafana/mutt-dashboard-v25.json`
+  - Import via Grafana → Dashboards → Import → Upload JSON.
+- Grafana provisioning (example):
+  - Dashboards provider: `docs/grafana/provisioning/dashboards.yml`
+  - Prometheus datasource: `docs/grafana/provisioning/datasources.yml`
+  - Mount `docs/grafana` into Grafana container (e.g., `/var/lib/grafana/dashboards`).
+- Prometheus alert rules: `docs/prometheus/alerts-v25.yml`
+  - Load into your Prometheus/Alertmanager stack; adjust thresholds to your environment.
+- Alertmanager example routing: `docs/alertmanager/config-v25.yml`
+  - Replace email/webhook with your receivers and global SMTP/webhook config.
