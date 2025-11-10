@@ -95,7 +95,7 @@ class RetentionCleanup:
             Exception: If database operation fails
         """
         retention_days = self.config.get('audit_days', 365)
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = utcnow() - timedelta(days=retention_days)
 
         logger.info(
             f"Starting config audit log cleanup "
