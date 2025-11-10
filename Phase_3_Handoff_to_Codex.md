@@ -11,12 +11,12 @@
 
 This document outlines the final, remaining work required to complete Phase 3 of the MUTT v2.5 project.
 
-- **COMPLETED**: Phase 2 (All), Phase 3A (Backpressure Foundations), and Phase 3.2 (Self-Healing/Remediation Service).
-- **REMAINING**: Phase 3.1 (Alerter Backpressure) and Phase 3.3 (SLO Tracking).
+- **COMPLETED**: Phase 2 (All), Phase 3A (Backpressure Foundations), Phase 3.2 (Self-Healing/Remediation Service), and Phase 3.1 (Alerter Backpressure).
+- **REMAINING**: Phase 3.3 (SLO Tracking).
 
-The project is in a very healthy state. The previous AI successfully implemented the entire remediation service. This plan will guide you through the final features needed to complete the project.
+The project is in a very healthy state. The previous AI successfully implemented the entire remediation service, and the Alerter Backpressure feature is also complete. This plan will guide you through the final features needed to complete the project.
 
-**Your task is to implement the work described in this plan, starting with Section 3: Alerter Backpressure.**
+**Your task is to implement the work described in this plan, starting with Section 3: SLO Tracking & Dashboard.**
 
 ---
 

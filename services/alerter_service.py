@@ -360,32 +360,14 @@ def _get_unhandled_expiry(config: "Config") -> int:
     return _dyn_get_int('unhandled_expiry_seconds', config.UNHANDLED_EXPIRY_SECONDS)
 
 
-def _dyn_get_int_multi(keys: list[str], fallback: int) -> int:
-    """Try multiple dynamic config keys and return the first found as int.
-
-    Falls back to the provided default when no key is present or convertible.
-    """
-    for k in keys:
-        try:
-            if DYN_CONFIG:
-                v = DYN_CONFIG.get(k)
-                if v is not None:
-                    return int(v)
-        except Exception as e:  # pragma: no cover
-            logger.debug(f"DynamicConfig get failed for {k}: {e}")
-    return fallback
-
-
 def _get_alerter_queue_warn_threshold() -> int:
     """Returns the queue depth to start logging warnings."""
-    # Support both new and legacy key names
-    return _dyn_get_int_multi(['alerter_queue_warn_threshold', 'alerter_queue_warn'], 1000)
+    return _dyn_get_int('alerter_queue_warn_threshold', 1000)
 
 
 def _get_alerter_queue_shed_threshold() -> int:
     """Returns the queue depth to start shedding load."""
-    # Support both new and legacy key names
-    return _dyn_get_int_multi(['alerter_queue_shed_threshold', 'alerter_queue_shed'], 2000)
+    return _dyn_get_int('alerter_queue_shed_threshold', 2000)
 
 
 def _get_alerter_shed_mode() -> str:
@@ -396,6 +378,67 @@ def _get_alerter_shed_mode() -> str:
     except Exception:  # pragma: no cover
         pass
     return 'dlq'
+
+# =====================================================================
+# BACKPRESSURE HANDLER (Phase 3)
+# =====================================================================
+
+def handle_backpressure(config: "Config", redis_client: redis.Redis) -> str:
+    """Check queue depth and take action if thresholds exceeded.
+
+    Returns one of: 'none', 'warn', 'shed_dlq', 'defer'.
+    """
+    try:
+        # Monitor the queue per approved guidance: mutt:alert_queue
+        queue_depth = redis_client.llen(config.ALERT_QUEUE_NAME)
+        METRIC_ALERTER_QUEUE_DEPTH.set(queue_depth)
+
+        shed_threshold = _get_alerter_queue_shed_threshold()
+        warn_threshold = _get_alerter_queue_warn_threshold()
+
+        if queue_depth > shed_threshold:
+            shed_mode = _get_alerter_shed_mode()
+            logger.warning(
+                f"SHEDDING LOAD: Queue depth ({queue_depth}) > threshold ({shed_threshold}). "
+                f"Mode: {shed_mode}"
+            )
+
+            if shed_mode == 'dlq':
+                # Shed from alerter's ingest to avoid growing downstream queue
+                shed_msg = redis_client.rpop(config.INGEST_QUEUE_NAME)
+                if shed_msg:
+                    enriched = shed_msg
+                    try:
+                        payload = json.loads(shed_msg)
+                        payload['shedding_reason'] = f"queue_depth_exceeded:{queue_depth}>{shed_threshold}"
+                        enriched = json.dumps(payload)
+                    except Exception:
+                        pass
+                    redis_client.lpush(config.ALERTER_DLQ_NAME, enriched)
+                    METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='dlq').inc()
+                    logger.info(f"Moved event to DLQ: {str(enriched)[:MESSAGE_PREVIEW_LENGTH]}")
+                time.sleep(0.05)
+                return 'shed_dlq'
+
+            elif shed_mode == 'defer':
+                defer_time_ms = _dyn_get_int('alerter_defer_sleep_ms', 250)
+                logger.info(f"Deferring processing for {defer_time_ms}ms.")
+                time.sleep(defer_time_ms / 1000.0)
+                METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='defer').inc()
+                time.sleep(0.05)
+                return 'defer'
+
+        elif queue_depth > warn_threshold:
+            logger.warning(
+                f"BACKPRESSURE WARNING: Alert queue depth ({queue_depth}) "
+                f"is over warn threshold ({warn_threshold})."
+            )
+            return 'warn'
+
+    except Exception as e:
+        logger.error(f"Backpressure handler error: {e}")
+
+    return 'none'
 
 # =====================================================================
 # VAULT SECRET MANAGEMENT
@@ -1288,51 +1331,10 @@ def main():
         message_string = None
         try:
             # --- Phase 3: Backpressure Check ---
-            try:
-                queue_depth = redis_client.llen(config.INGEST_QUEUE_NAME)
-                METRIC_ALERTER_QUEUE_DEPTH.set(queue_depth)
-    
-                shed_threshold = _get_alerter_queue_shed_threshold()
-                warn_threshold = _get_alerter_queue_warn_threshold()
-    
-                if queue_depth > shed_threshold:
-                    shed_mode = _get_alerter_shed_mode()
-                    logger.warning(
-                        f"SHEDDING LOAD: Queue depth ({queue_depth}) > threshold ({shed_threshold}). "
-                        f"Mode: {shed_mode}"
-                    )
-
-                    if shed_mode == 'dlq':
-                        # Shed load by moving directly to DLQ without processing
-                        shed_msg = redis_client.rpop(config.INGEST_QUEUE_NAME)
-                        if shed_msg:
-                            enriched = shed_msg
-                            try:
-                                payload = json.loads(shed_msg)
-                                payload['shedding_reason'] = f"queue_depth_exceeded:{queue_depth}>{shed_threshold}"
-                                enriched = json.dumps(payload)
-                            except Exception:
-                                # If parsing fails, push the original message to avoid loss
-                                pass
-                            redis_client.lpush(config.ALERTER_DLQ_NAME, enriched)
-                            METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='dlq').inc()
-                            logger.info(f"Moved event to DLQ: {str(enriched)[:MESSAGE_PREVIEW_LENGTH]}")
-                    
-                    elif shed_mode == 'defer':
-                        # Defer processing by sleeping
-                        defer_time_ms = _dyn_get_int('alerter_defer_sleep_ms', 250)
-                        logger.info(f"Deferring processing for {defer_time_ms}ms.")
-                        time.sleep(defer_time_ms / 1000.0)
-                        METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='defer').inc()
-    
-                    time.sleep(0.05)  # Avoid tight loop when shedding/deferring
-                    continue  # Skip normal processing for this cycle
-    
-                elif queue_depth > warn_threshold:
-                    logger.warning(
-                        f"BACKPRESSURE WARNING: Ingest queue depth ({queue_depth}) "
-                        f"is over warn threshold ({warn_threshold})."
-                    )
+            action = handle_backpressure(config, redis_client)
+            if action in ('shed_dlq', 'defer'):
+                # Skip normal processing for this cycle
+                continue
     
             except redis.exceptions.RedisError as e:
                 logger.error(f"Backpressure check failed: {e}")

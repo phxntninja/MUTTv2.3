@@ -498,6 +498,89 @@ class TestTeamAssignment:
 
         assert team == "NetOps"
 
+
+class TestBackpressureHandling:
+    """Unit tests for alerter backpressure logic (Phase 3)."""
+
+    def test_backpressure_shed_dlq(self, monkeypatch):
+        """Sheds one message to DLQ when depth exceeds shed threshold in dlq mode."""
+        from services import alerter_service as al
+
+        # Mock config
+        class C:
+            ALERT_QUEUE_NAME = 'mutt:alert_queue'
+            INGEST_QUEUE_NAME = 'mutt:ingest_queue'
+            ALERTER_DLQ_NAME = 'mutt:dlq:alerter'
+        config = C()
+
+        # Mock redis client
+        rc = Mock()
+        rc.llen.return_value = 5001
+        rc.rpop.return_value = json.dumps({"message": "x"})
+
+        # Force dynamic config getters
+        monkeypatch.setattr(al, '_get_alerter_queue_shed_threshold', lambda: 5000)
+        monkeypatch.setattr(al, '_get_alerter_queue_warn_threshold', lambda: 1000)
+        monkeypatch.setattr(al, '_get_alerter_shed_mode', lambda: 'dlq')
+
+        # Patch metrics to avoid touching real counters
+        labels_mock = Mock()
+        monkeypatch.setattr(al.METRIC_ALERTER_SHED_EVENTS_TOTAL, 'labels', Mock(return_value=labels_mock))
+
+        action = al.handle_backpressure(config, rc)
+
+        assert action == 'shed_dlq'
+        rc.llen.assert_called_once_with('mutt:alert_queue')
+        rc.rpop.assert_called_once_with('mutt:ingest_queue')
+        rc.lpush.assert_called_once()  # To DLQ
+        assert labels_mock.inc.called
+
+    def test_backpressure_defer(self, monkeypatch):
+        """Defers processing when in defer mode and over shed threshold."""
+        from services import alerter_service as al
+
+        class C:
+            ALERT_QUEUE_NAME = 'mutt:alert_queue'
+            INGEST_QUEUE_NAME = 'mutt:ingest_queue'
+            ALERTER_DLQ_NAME = 'mutt:dlq:alerter'
+        config = C()
+
+        rc = Mock()
+        rc.llen.return_value = 10000
+
+        monkeypatch.setattr(al, '_get_alerter_queue_shed_threshold', lambda: 5000)
+        monkeypatch.setattr(al, '_get_alerter_queue_warn_threshold', lambda: 1000)
+        monkeypatch.setattr(al, '_get_alerter_shed_mode', lambda: 'defer')
+        monkeypatch.setattr(al, '_dyn_get_int', lambda key, fallback: 250 if key == 'alerter_defer_sleep_ms' else fallback)
+
+        sleep_calls = []
+        monkeypatch.setattr(al.time, 'sleep', lambda s: sleep_calls.append(s))
+
+        action = al.handle_backpressure(config, rc)
+
+        assert action == 'defer'
+        assert any(abs(s - 0.25) < 1e-6 for s in sleep_calls)
+
+    def test_backpressure_warn_only(self, monkeypatch):
+        """Logs warning when over warn threshold but below shed."""
+        from services import alerter_service as al
+
+        class C:
+            ALERT_QUEUE_NAME = 'mutt:alert_queue'
+            INGEST_QUEUE_NAME = 'mutt:ingest_queue'
+            ALERTER_DLQ_NAME = 'mutt:dlq:alerter'
+        config = C()
+
+        rc = Mock()
+        rc.llen.return_value = 1500
+
+        monkeypatch.setattr(al, '_get_alerter_queue_shed_threshold', lambda: 5000)
+        monkeypatch.setattr(al, '_get_alerter_queue_warn_threshold', lambda: 1000)
+
+        action = al.handle_backpressure(config, rc)
+
+        assert action == 'warn'
+
     def test_fallback_team_assignment(self, sample_device_teams):
         """Test fallback team for unknown device"""
         hostname = "unknown-device.example.com"

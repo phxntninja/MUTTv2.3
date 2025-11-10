@@ -43,6 +43,7 @@ if True:
   import uuid
   import time
   import threading
+  import requests
   import secrets as secrets_module
   import psycopg2
   import psycopg2.pool
@@ -137,7 +138,7 @@ if True:
   # CONFIGURATION
   # =====================================================================
 
-  class Config:
+      class Config:
       """Service configuration loaded from environment variables."""
 
       def __init__(self):
@@ -176,6 +177,8 @@ if True:
               # Application Config
               self.METRICS_CACHE_TTL = int(os.environ.get('METRICS_CACHE_TTL', 5))
               self.AUDIT_LOG_PAGE_SIZE = int(os.environ.get('AUDIT_LOG_PAGE_SIZE', 50))
+              # Prometheus Config
+              self.PROMETHEUS_URL = os.environ.get('PROMETHEUS_URL', 'http://localhost:9090')
 
               # Validate
               self._validate()
@@ -472,6 +475,65 @@ def create_app() -> Flask:
 
       # Initialize metrics cache
       metrics_cache = MetricsCache(ttl=app.config["MUTT_CONFIG"].METRICS_CACHE_TTL)
+
+      # ================================================================
+      # SLO HELPERS (Prometheus + Dynamic Config)
+      # ================================================================
+
+      def _dyn_get_float(key: str, default: float) -> float:
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return default
+          try:
+              v = dyn.get(key, default=str(default))
+              return float(v)
+          except Exception:
+              return default
+
+      def _dyn_get_int(key: str, default: int) -> int:
+          dyn = app.config.get("DYNAMIC_CONFIG")
+          if not dyn:
+              return default
+          try:
+              v = dyn.get(key, default=str(default))
+              return int(v)
+          except Exception:
+              return default
+
+      def _query_prometheus(expr: str, timeout: int = 5) -> Optional[float]:
+          """Query Prometheus HTTP API and return scalar value or None."""
+          base = app.config["MUTT_CONFIG"].PROMETHEUS_URL.rstrip('/')
+          url = f"{base}/api/v1/query"
+          params = {"query": expr}
+          try:
+              resp = requests.get(url, params=params, timeout=timeout)
+              if resp.status_code != 200:
+                  raise RuntimeError(f"HTTP {resp.status_code}")
+              data = resp.json()
+              if data.get('status') != 'success':
+                  return None
+              result = data.get('data', {}).get('result', [])
+              if not result:
+                  return None
+              value = result[0].get('value', [None, None])[1]
+              return float(value) if value is not None else None
+          except Exception:
+              # Single retry after 2 seconds
+              try:
+                  time.sleep(2)
+                  resp = requests.get(url, params=params, timeout=timeout)
+                  if resp.status_code != 200:
+                      return None
+                  data = resp.json()
+                  if data.get('status') != 'success':
+                      return None
+                  result = data.get('data', {}).get('result', [])
+                  if not result:
+                      return None
+                  value = result[0].get('value', [None, None])[1]
+                  return float(value) if value is not None else None
+              except Exception:
+                  return None
 
       # ================================================================
       # REQUEST LIFECYCLE HOOKS
@@ -786,6 +848,66 @@ def create_app() -> Flask:
       # ================================================================
       # ALERT RULES CRUD API
       # ================================================================
+
+      @app.route('/api/v1/slo', methods=['GET'])
+      @require_api_key
+      def get_slo():
+          """Return current SLO status for key components."""
+          window_hours = _dyn_get_int('slo_window_hours', 24)
+          window = f"{window_hours}h"
+
+          # Targets
+          ingest_target = _dyn_get_float('slo_ingest_success_target', 0.995)
+          forward_target = _dyn_get_float('slo_forward_success_target', 0.99)
+
+          # Approved queries
+          q_ingest = f"sum(rate(mutt_ingest_requests_total{{status=\"success\"}}[{window}])) / sum(rate(mutt_ingest_requests_total[{window}]))"
+          q_forward = f"sum(rate(mutt_moog_requests_total{{status=\"success\"}}[{window}])) / sum(rate(mutt_moog_requests_total[{window}]))"
+
+          with METRIC_API_LATENCY.labels(endpoint='slo').time():
+              try:
+                  ingest_avail = _query_prometheus(q_ingest)
+                  forward_avail = _query_prometheus(q_forward)
+
+                  def build(component: str, availability: Optional[float], target: float) -> Dict[str, Any]:
+                      if availability is None:
+                          return {
+                              "component": component,
+                              "target": target,
+                              "availability": None,
+                              "error_budget_remaining": None,
+                              "burn_rate": None,
+                              "window_hours": window_hours,
+                              "state": "critical",
+                          }
+                      err_budget = max(0.0, 1.0 - target)
+                      err_rate = max(0.0, 1.0 - availability)
+                      burn_rate = (err_rate / err_budget) if err_budget > 0 else 0.0
+                      state = 'ok' if burn_rate <= 1.0 else ('warn' if burn_rate <= 2.0 else 'critical')
+                      return {
+                          "component": component,
+                          "target": target,
+                          "availability": availability,
+                          "error_budget_remaining": max(0.0, 1.0 - availability) / (1.0 - target) if (1.0 - target) > 0 else 1.0,
+                          "burn_rate": burn_rate,
+                          "window_hours": window_hours,
+                          "state": state,
+                      }
+
+                  response = {
+                      "window_hours": window_hours,
+                      "components": {
+                          "ingestor": build('ingestor', ingest_avail, ingest_target),
+                          "forwarder": build('forwarder', forward_avail, forward_target),
+                      }
+                  }
+                  METRIC_API_REQUESTS_TOTAL.labels(endpoint='slo', status='success').inc()
+                  return jsonify(response)
+
+              except Exception as e:
+                  logger.error(f"Failed to compute SLOs: {e}", exc_info=True)
+                  METRIC_API_REQUESTS_TOTAL.labels(endpoint='slo', status='error').inc()
+                  return jsonify({"error": str(e)}), 500
 
       @app.route('/api/v1/rules', methods=['GET'])
       @require_api_key

@@ -143,10 +143,10 @@
 
   # Check if source files exist in current directory
   REQUIRED_FILES=(
-      "ingestor_service.py"
-      "alerter_service.py"
-      "moog_forwarder_service.py"
-      "web_ui_service.py"
+      "services/ingestor_service.py"
+      "services/alerter_service.py"
+      "services/moog_forwarder_service.py"
+      "services/web_ui_service.py"
   )
 
   for file in "${REQUIRED_FILES[@]}"; do
@@ -158,10 +158,10 @@
   done
 
   # Copy service files
-  cp ingestor_service.py /opt/mutt/
-  cp alerter_service.py /opt/mutt/
-  cp moog_forwarder_service.py /opt/mutt/
-  cp web_ui_service.py /opt/mutt/
+  cp services/ingestor_service.py /opt/mutt/
+  cp services/alerter_service.py /opt/mutt/
+  cp services/moog_forwarder_service.py /opt/mutt/
+  cp services/web_ui_service.py /opt/mutt/
 
   log_info "Application code deployed ✓"
 
