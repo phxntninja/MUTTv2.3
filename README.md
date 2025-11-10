@@ -967,3 +967,6 @@
   Built with ❤️ by the MUTT Team | Version 2.3
 
   ---
+## Observability
+
+See `docs/observability.md` for OpenTelemetry configuration: running without a backend, disabling OTEL, console exporters, and enabling via a Collector or backend.

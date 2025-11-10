@@ -45,6 +45,15 @@ if True:
   except Exception:  # pragma: no cover - optional import safety
       DynamicConfig = None
 
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      extract_tracecontext = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -70,11 +79,15 @@ if True:
   # LOGGING SETUP WITH CORRELATION ID FILTER
   # =====================================================================
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="ingestor", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
 
 
   class CorrelationIdFilter(logging.Filter):
@@ -89,6 +102,7 @@ if True:
           return True
 
 
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
@@ -412,6 +426,10 @@ if True:
       # Load and validate configuration
       app.config["CONFIG"] = load_config()
 
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="ingestor", version="2.3.0")
+
       # Fetch secrets and start Vault renewal thread
       fetch_secrets(app)
 
@@ -436,6 +454,14 @@ if True:
           # Generate or extract correlation ID for request tracing
           correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
           request.correlation_id = correlation_id
+
+          # Phase 2: Extract trace context from incoming request headers (if available)
+          # Note: Flask auto-instrumentation handles this automatically
+          if extract_tracecontext is not None:
+              try:
+                  extract_tracecontext(dict(request.headers))
+              except Exception:
+                  pass  # Trace context extraction is optional
 
           # Skip auth for public endpoints
           if request.path in ['/health', '/metrics', '/']:

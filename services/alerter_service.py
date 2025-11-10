@@ -61,6 +61,16 @@ if True:
       DynamicConfig = None
   DYN_CONFIG = None  # type: ignore[var-annotated]
 
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, create_span, set_span_attribute  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      create_span = None  # type: ignore
+      set_span_attribute = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -153,11 +163,17 @@ if True:
           return True
 
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="alerter", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
+
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================

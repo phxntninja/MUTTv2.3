@@ -54,6 +54,15 @@ if True:
   from functools import wraps
   from typing import Any, Dict, Optional, Callable
 
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, extract_tracecontext  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      extract_tracecontext = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -86,11 +95,15 @@ if True:
   # LOGGING SETUP
   # =====================================================================
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="web_ui", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
 
 
   class CorrelationIdFilter(logging.Filter):
@@ -103,6 +116,7 @@ if True:
           return True
 
 
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
@@ -432,6 +446,10 @@ def create_app() -> Flask:
       # Load configuration
       app.config["MUTT_CONFIG"] = Config()
 
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="web_ui", version="2.3.0")
+
       # Fetch secrets and start Vault renewal
       fetch_secrets(app)
 
@@ -454,6 +472,15 @@ def create_app() -> Flask:
           """Set up request-specific context."""
           request.correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
           request.start_time = time.time()
+
+          # Phase 2: Extract trace context from incoming request headers (if available)
+          # Note: Flask auto-instrumentation handles this automatically, but we
+          # keep this for explicit extraction in case of manual span creation
+          if extract_tracecontext is not None:
+              try:
+                  extract_tracecontext(dict(request.headers))
+              except Exception:
+                  pass  # Trace context extraction is optional
 
       @app.after_request
       def log_request(response):
