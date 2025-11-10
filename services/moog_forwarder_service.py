@@ -62,6 +62,12 @@ if True:
       create_span = None  # type: ignore
       set_span_attribute = None  # type: ignore
 
+  # Phase 3A - Advanced Reliability (Circuit Breaker)
+  try:
+      from rate_limiter import CircuitBreaker  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      CircuitBreaker = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -97,6 +103,25 @@ if True:
       'mutt_moog_alerts_processed_total',
       'Total alerts processed by the forwarder',
       ['status']  # success, dlq, error
+  )
+
+  # Phase 3A - Circuit Breaker Metrics
+  METRIC_CIRCUIT_BREAKER_STATE = Gauge(
+      'mutt_circuit_breaker_state',
+      'Circuit breaker state (0=CLOSED, 1=HALF_OPEN, 2=OPEN)',
+      ['name']
+  )
+
+  METRIC_CIRCUIT_BREAKER_FAILURES = Gauge(
+      'mutt_circuit_breaker_failures',
+      'Current consecutive failure count',
+      ['name']
+  )
+
+  METRIC_CIRCUIT_BREAKER_STATE_CHANGES = Counter(
+      'mutt_circuit_breaker_state_changes_total',
+      'Total circuit breaker state transitions',
+      ['name', 'from_state', 'to_state']
   )
 
   # =====================================================================
@@ -215,6 +240,11 @@ if True:
               self.MOOG_RETRY_BASE_DELAY = float(os.environ.get('MOOG_RETRY_BASE_DELAY', 1.0))  # 1 second
               self.MOOG_RETRY_MAX_DELAY = float(os.environ.get('MOOG_RETRY_MAX_DELAY', 60.0))  # 60 seconds
 
+              # Phase 3A - Circuit Breaker Config
+              self.CIRCUIT_BREAKER_ENABLED = os.environ.get('CIRCUIT_BREAKER_ENABLED', 'true').lower() in ('true', '1', 'yes', 'on')
+              self.CIRCUIT_BREAKER_THRESHOLD = int(os.environ.get('CIRCUIT_BREAKER_THRESHOLD', 10))
+              self.CIRCUIT_BREAKER_TIMEOUT = int(os.environ.get('CIRCUIT_BREAKER_TIMEOUT', 300))  # 5 minutes
+
               # Vault Config
               self.VAULT_ADDR = os.environ.get('VAULT_ADDR')
               self.VAULT_ROLE_ID = os.environ.get('VAULT_ROLE_ID')
@@ -292,6 +322,14 @@ if True:
 
   def _get_moog_rate_period(config: "Config") -> int:
       return _dyn_get_int('moog_rate_period', config.MOOG_RATE_PERIOD)
+
+
+def _get_circuit_breaker_threshold(config: "Config") -> int:
+      return _dyn_get_int('circuit_breaker_threshold', config.CIRCUIT_BREAKER_THRESHOLD)
+
+
+def _get_circuit_breaker_timeout(config: "Config") -> int:
+      return _dyn_get_int('circuit_breaker_timeout', config.CIRCUIT_BREAKER_TIMEOUT)
 
   # =====================================================================
   # VAULT SECRET MANAGEMENT

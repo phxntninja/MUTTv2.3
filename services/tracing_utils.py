@@ -85,6 +85,23 @@ except ImportError:
     OTEL_AVAILABLE = False
     trace = None  # type: ignore
     TracerProvider = None  # type: ignore
+    # Safe stubs so tests can patch these attributes
+    class _StatusCode:
+        ERROR = "ERROR"
+
+    class _Status:
+        def __init__(self, status_code=None, description=None):
+            self.status_code = status_code
+            self.description = description
+
+    StatusCode = _StatusCode  # type: ignore
+    Status = _Status  # type: ignore
+    BatchSpanProcessor = None  # type: ignore
+    OTLPSpanExporter = None  # type: ignore
+    # Resource attribute keys as strings for compatibility
+    Resource = None  # type: ignore
+    SERVICE_NAME = "service.name"  # type: ignore
+    SERVICE_VERSION = "service.version"  # type: ignore
     FlaskInstrumentor = None
     RequestsInstrumentor = None
     RedisInstrumentor = None
