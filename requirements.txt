@@ -9,7 +9,7 @@ Flask==2.3.3
 gunicorn==21.2.0
 
 # Database
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 
 # Redis
 redis==5.0.1

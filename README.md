@@ -1031,6 +1031,7 @@ More details:
 - Alerter backpressure guide: `docs/ALERTER_BACKPRESSURE.md`
 - SLOs guide and API: `docs/SLOs.md`
 - Architect status & review protocol: `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
+- Dynamic Config Cheat‑Sheet: `docs/DYNAMIC_CONFIG_CHEATSHEET.md`
 - Feature matrix: `docs/FEATURE_MATRIX.md`
 - Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
 
@@ -1068,4 +1069,14 @@ python scripts/muttdev.py config --section all
 
 # Suggested log commands for a service
 python scripts/muttdev.py logs --service webui --tail 200
+
+# Bring up services with docker-compose (optional list)
+python scripts/muttdev.py up webui
+
+# Run quick, targeted tests (Phase 3/4 areas)
+python scripts/muttdev.py test --quick
+
+# Run full test suite or filter via -k
+python scripts/muttdev.py test
+python scripts/muttdev.py test -k retention
 ```
