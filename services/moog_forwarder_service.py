@@ -52,6 +52,16 @@ if True:
       DynamicConfig = None
   DYN_CONFIG = None  # type: ignore[var-annotated]
 
+  # Phase 2 Observability (opt-in)
+  try:
+      from logging_utils import setup_json_logging  # type: ignore
+      from tracing_utils import setup_tracing, create_span, set_span_attribute  # type: ignore
+  except ImportError:  # pragma: no cover - optional imports
+      setup_json_logging = None  # type: ignore
+      setup_tracing = None  # type: ignore
+      create_span = None  # type: ignore
+      set_span_attribute = None  # type: ignore
+
   # =====================================================================
   # PROMETHEUS METRICS
   # =====================================================================
@@ -113,11 +123,17 @@ if True:
           return True
 
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
-  )
-  logger = logging.getLogger(__name__)
+  # Phase 2: Use JSON logging if available and enabled
+  if setup_json_logging is not None:
+      logger = setup_json_logging(service_name="moog_forwarder", version="2.3.0")
+  else:
+      logging.basicConfig(
+          level=logging.INFO,
+          format='%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+      )
+      logger = logging.getLogger(__name__)
+
+  # Add correlation ID filter (works with both JSON and text logging)
   logger.addFilter(CorrelationIdFilter())
 
   # =====================================================================
@@ -865,6 +881,11 @@ def _map_severity(severity_str: str) -> int:
 
       # --- 1. Load Config, Secrets, and Connections ---
       config = Config()
+
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="moog_forwarder", version="2.3.0")
+
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
 
@@ -936,7 +957,20 @@ def _map_severity(severity_str: str) -> int:
                   continue
 
               # --- Process the alert ---
-              result = process_alert(alert_string, config, secrets, redis_client)
+              # Phase 2: Wrap processing in a span for distributed tracing
+              span_func = create_span if create_span is not None else None
+              if span_func:
+                  with span_func(
+                      "forward_alert_to_moog",
+                      attributes={
+                          "queue.name": config.ALERT_QUEUE_NAME,
+                          "service.instance": config.POD_NAME,
+                          "destination": config.MOOG_WEBHOOK_URL,
+                      }
+                  ):
+                      result = process_alert(alert_string, config, secrets, redis_client)
+              else:
+                  result = process_alert(alert_string, config, secrets, redis_client)
 
               # --- Clean up the processing list ---
               if result is not None:

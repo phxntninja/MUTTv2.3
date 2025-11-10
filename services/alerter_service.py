@@ -1171,6 +1171,11 @@ if True:
 
       # --- 1. Load Config, Secrets, and Connections ---
       config = Config()
+
+      # Phase 2: Setup distributed tracing if enabled
+      if setup_tracing is not None:
+          setup_tracing(service_name="alerter", version="2.3.0")
+
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
       # Initialize optional dynamic configuration
@@ -1267,12 +1272,30 @@ if True:
               # --- Process the message ---
               # process_message returns the original string on SUCCESS
               # and None on FAILURE (e.g., poison pill, validation error)
-              result = process_message(
-                  message_string,
-                  config, secrets,
-                  redis_client, db_pool,
-                  cache_manager, matcher
-              )
+
+              # Phase 2: Wrap processing in a span for distributed tracing
+              span_func = create_span if create_span is not None else None
+              if span_func:
+                  with span_func(
+                      "process_alert_event",
+                      attributes={
+                          "queue.name": config.INGEST_QUEUE_NAME,
+                          "service.instance": config.POD_NAME,
+                      }
+                  ):
+                      result = process_message(
+                          message_string,
+                          config, secrets,
+                          redis_client, db_pool,
+                          cache_manager, matcher
+                      )
+              else:
+                  result = process_message(
+                      message_string,
+                      config, secrets,
+                      redis_client, db_pool,
+                      cache_manager, matcher
+                  )
 
               # --- Clean up the processing list ---
               if result is not None:

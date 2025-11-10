@@ -39,3 +39,14 @@ This project can run without an OpenTelemetry (OTEL) backend or collector. By de
 - Scope: these environment variables affect the current shell session. Put them in your shell profile or project startup scripts if you need them every run.
 - Virtualenv: you can optionally add them to your Python venv activation scripts (e.g., `venv/Scripts/Activate.ps1`) so they apply whenever the venv is activated.
 
+## Virtualenv Activation Defaults
+The venv activation script sets safe OpenTelemetry defaults each time you activate the environment. Control behavior with `MUTT_OTEL_MODE`:
+
+- `disabled` (default): sets `OTEL_SDK_DISABLED=true` and exporters to `none` unless already set.
+- `console`: enables console exporters for traces and logs (`OTEL_TRACES_EXPORTER=console`, `OTEL_LOGS_EXPORTER=console`), metrics exporter defaults to `none` unless set.
+- any other value: leaves existing OTEL variables unchanged.
+
+Examples (PowerShell):
+- Console mode for this session: `$env:MUTT_OTEL_MODE = "console"; .\venv\Scripts\Activate.ps1`
+- Back to disabled: `$env:MUTT_OTEL_MODE = "disabled"; .\venv\Scripts\Activate.ps1`
+- Use custom OTEL settings: `Remove-Item Env:MUTT_OTEL_MODE -ErrorAction SilentlyContinue; .\venv\Scripts\Activate.ps1`
