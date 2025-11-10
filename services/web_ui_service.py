@@ -160,7 +160,7 @@ if True:
   # CONFIGURATION
   # =====================================================================
 
-      class Config:
+  class Config:
       """Service configuration loaded from environment variables."""
 
       def __init__(self):
