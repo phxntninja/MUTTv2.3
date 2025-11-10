@@ -29,10 +29,17 @@ Version: 2.5.0
 import logging
 from functools import wraps
 from typing import Optional, Callable, Dict, Any
-from flask import request, jsonify, Response, make_response
+from flask import jsonify, Response, make_response, request as flask_request
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Note on request access in tests:
+# We avoid binding Flask's LocalProxy `request` at import time to prevent
+# evaluation outside an active request context when unit tests patch it.
+# Tests may patch `api_versioning.request` directly. If present, we will use
+# that object; otherwise we fall back to Flask's `flask_request`.
+request = None  # type: ignore
 
 # Current API version
 CURRENT_API_VERSION = '2.0'
@@ -92,18 +99,19 @@ def get_requested_version() -> str:
         >>> version = get_requested_version()
         >>> print(version)  # '2.0'
     """
+    req = request if request is not None else flask_request  # type: ignore
     # Try Accept-Version header (preferred)
-    version = request.headers.get('Accept-Version')
+    version = req.headers.get('Accept-Version')
     if version and version in SUPPORTED_VERSIONS:
         return version
 
     # Try X-API-Version header (alternative)
-    version = request.headers.get('X-API-Version')
+    version = req.headers.get('X-API-Version')
     if version and version in SUPPORTED_VERSIONS:
         return version
 
     # Try query parameter
-    version = request.args.get('api_version')
+    version = req.args.get('api_version')
     if version and version in SUPPORTED_VERSIONS:
         return version
 
@@ -196,8 +204,9 @@ def versioned_endpoint(
             requested_version = get_requested_version()
 
             # Store version metadata on the request for logging
-            request.api_version = requested_version
-            request.endpoint_metadata = {
+            req = request if request is not None else flask_request  # type: ignore
+            req.api_version = requested_version
+            req.endpoint_metadata = {
                 'since': since,
                 'deprecated_in': deprecated_in,
                 'removed_in': removed_in,
@@ -207,7 +216,7 @@ def versioned_endpoint(
             # Check if endpoint is removed in the requested version
             if removed_in and _is_version_gte(requested_version, removed_in):
                 logger.warning(
-                    f"Attempt to access removed endpoint: {request.endpoint} "
+                    f"Attempt to access removed endpoint: {getattr(req, 'endpoint', '<unknown>')} "
                     f"(removed in {removed_in}, requested version: {requested_version})"
                 )
                 response = jsonify({
@@ -218,12 +227,12 @@ def versioned_endpoint(
                     "current_version": CURRENT_API_VERSION
                 })
                 response.status_code = 410  # Gone
-                return add_version_headers(response, request.endpoint_metadata)
+                return add_version_headers(response, getattr(req, 'endpoint_metadata', None))
 
             # Log deprecation warnings
             if deprecated_in and _is_version_gte(requested_version, deprecated_in):
                 logger.warning(
-                    f"Deprecated endpoint accessed: {request.endpoint} "
+                    f"Deprecated endpoint accessed: {getattr(req, 'endpoint', '<unknown>')} "
                     f"(deprecated in {deprecated_in}, requested version: {requested_version})"
                 )
 
@@ -232,14 +241,14 @@ def versioned_endpoint(
 
             # Add version headers to response
             if isinstance(result, Response):
-                return add_version_headers(result, request.endpoint_metadata)
+                return add_version_headers(result, getattr(req, 'endpoint_metadata', None))
             elif isinstance(result, tuple):
                 # Handle (response, status_code) tuples
                 response = make_response(result)
-                return add_version_headers(response, request.endpoint_metadata)
+                return add_version_headers(response, getattr(req, 'endpoint_metadata', None))
             else:
                 response = make_response(result)
-                return add_version_headers(response, request.endpoint_metadata)
+                return add_version_headers(response, getattr(req, 'endpoint_metadata', None))
 
         # Store metadata on the function for introspection
         decorated_function.api_version_info = {
