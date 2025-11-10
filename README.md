@@ -40,11 +40,22 @@
 
   ---
 
-  ## 🎯 Overview
+## 🎯 Overview
 
-  MUTT provides a robust, fault-tolerant pipeline for processing network events from syslog and SNMP traps. It
-  intelligently routes events based on configurable rules, distinguishes between production and development
-  environments, and forwards alerts to downstream systems like Moogsoft.
+MUTT provides a robust, fault-tolerant pipeline for processing network events from syslog and SNMP traps. It
+intelligently routes events based on configurable rules, distinguishes between production and development
+environments, and forwards alerts to downstream systems like Moogsoft.
+
+Quickstart
+- Developer setup: see `docs/DEV_QUICKSTART.md`
+- Developer CLI: `muttdev` (install with `pip install -e .` to enable console script)
+
+v2.5 Highlights (Summary)
+- Dynamic Config: Redis‑backed runtime tuning with Pub/Sub invalidation
+- Observability: Structured logging, metrics, tracing, SLO endpoint and rules
+- Reliability: Backpressure controls, remediation service, circuit breaker patterns
+- Compliance: Audit logging, API versioning, retention automation and docs
+- DevEx: `muttdev` CLI, ADRs, CI across OS/Python, quickstart docs
 
   ### Why MUTT?
 
@@ -1032,6 +1043,7 @@ More details:
 - SLOs guide and API: `docs/SLOs.md`
 - Architect status & review protocol: `docs/ARCHITECT_STATUS_FOR_GEMINI.md`
 - Dynamic Config Cheat‑Sheet: `docs/DYNAMIC_CONFIG_CHEATSHEET.md`
+- ADRs: `docs/adr/README.md`
 - Feature matrix: `docs/FEATURE_MATRIX.md`
 - Upgrade guide: `docs/UPGRADE_GUIDE_v2_3_to_v2_5.md`
 

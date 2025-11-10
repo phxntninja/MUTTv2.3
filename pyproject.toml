@@ -48,3 +48,24 @@ disallow_untyped_defs = false
 check_untyped_defs = false
 pretty = true
 show_error_codes = true
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muttdev"
+version = "0.1.0"
+description = "MUTT v2.5 developer CLI and utilities"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "MUTT Team" }]
+
+[project.scripts]
+muttdev = "scripts.muttdev:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["scripts", "services"]

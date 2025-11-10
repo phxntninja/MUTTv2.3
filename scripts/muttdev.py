@@ -74,7 +74,87 @@ def _print_section_header(title: str) -> None:
     print("-" * len(title))
 
 
-def cmd_config(section: str = 'all') -> int:
+def cmd_config(
+    section: str = 'all',
+    get_key: Optional[str] = None,
+    set_kv: Optional[List[str]] = None,
+    publish: bool = False,
+    list_keys: bool = False,
+) -> int:
+    # Redis-backed get/set/list operations
+    if get_key or set_kv or list_keys:
+        try:
+            import redis  # type: ignore
+        except Exception as e:
+            print(f"redis package not installed: {e}")
+            return 127
+
+        try:
+            rc = get_redis_config()
+            client = redis.Redis(
+                host=rc.get('host', 'localhost'),
+                port=rc.get('port', 6379),
+                db=rc.get('db', 0),
+                password=rc.get('password', None),
+                socket_timeout=2,
+            )
+        except Exception as e:
+            print(f"Failed to initialize Redis client: {e}")
+            return 1
+
+        prefix = 'mutt:config:'
+        updates_channel = prefix + 'updates'
+
+        if list_keys:
+            try:
+                count = 0
+                for rkey in client.scan_iter(prefix + '*'):
+                    key = rkey.decode('utf-8').split(':', 2)[-1]
+                    if key == 'updates':
+                        continue
+                    val = client.get(rkey)
+                    if isinstance(val, bytes):
+                        val = val.decode('utf-8')
+                    print(f"{key}={val}")
+                    count += 1
+                if count == 0:
+                    print("No dynamic config keys found.")
+                return 0
+            except Exception as e:
+                print(f"Failed to list keys: {e}")
+                return 1
+
+        if get_key:
+            try:
+                rkey = prefix + get_key
+                val = client.get(rkey)
+                if val is None:
+                    print("<null>")
+                else:
+                    if isinstance(val, bytes):
+                        val = val.decode('utf-8')
+                    print(val)
+                return 0
+            except Exception as e:
+                print(f"Failed to get key '{get_key}': {e}")
+                return 1
+
+        if set_kv:
+            key, value = set_kv
+            try:
+                rkey = prefix + key
+                client.set(rkey, str(value))
+                if publish:
+                    client.publish(updates_channel, key)
+                print(f"Set {key}={value}{' (published)' if publish else ''}")
+                return 0
+            except Exception as e:
+                print(f"Failed to set key '{key}': {e}")
+                return 1
+
+        return 0
+
+    # Default: print config sections
     section = section.lower()
     show_all = section == 'all'
 
@@ -105,7 +185,7 @@ def cmd_config(section: str = 'all') -> int:
     return 0
 
 
-def cmd_logs(service: str, tail: int) -> int:
+def cmd_logs(service: str, tail: int, follow: bool) -> int:
     service = service.lower()
     compose_map = {
         'ingestor': 'ingestor',
@@ -136,6 +216,17 @@ def cmd_logs(service: str, tail: int) -> int:
     }
     print("# System logs (if running via systemd or direct)\n"
           f"tail -n {tail} -F {' '.join(log_paths.get(service, []))}\n")
+
+    if follow:
+        # Try docker-compose follow if available
+        exe = shutil.which('docker-compose') or shutil.which('docker')
+        if exe and compose_file.exists():
+            if exe.endswith('docker'):
+                cmd = [exe, 'compose', 'logs', '-f', f'--tail={tail}', compose_map[service]]
+            else:
+                cmd = [exe, 'logs', '-f', f'--tail={tail}', compose_map[service]]
+            return _run(cmd, cwd=repo_root)
+        print("Cannot follow logs automatically (docker-compose not found). Use the printed commands.")
     return 0
 
 
@@ -270,9 +361,28 @@ def cmd_doctor() -> int:
         if rc:
             import redis as _redis
             try:
-                r = _redis.Redis(host=rc.get('host','localhost'), port=rc.get('port',6379), db=rc.get('db',0), password=rc.get('password',None), socket_timeout=1)
+                r = _redis.Redis(
+                    host=rc.get('host', 'localhost'),
+                    port=rc.get('port', 6379),
+                    db=rc.get('db', 0),
+                    password=rc.get('password', None),
+                    socket_timeout=1,
+                )
                 r.ping()
                 ok("Redis ping OK (1s timeout)")
+                # Quick dynamic config check (non-fatal)
+                try:
+                    count = 0
+                    for _ in r.scan_iter('mutt:config:*'):
+                        count += 1
+                        if count >= 1:
+                            break
+                    if count > 0:
+                        ok("DynamicConfig prefix present (mutt:config:*)")
+                    else:
+                        warn("DynamicConfig keys not found (mutt:config:*). Use 'muttdev config --list' to verify or initialize.")
+                except Exception as e:
+                    warn(f"DynamicConfig key scan failed: {e}")
             except Exception as e:
                 warn(f"Redis ping failed (1s timeout): {e}")
     except Exception as e:
@@ -313,13 +423,18 @@ def main(argv=None) -> int:
     p_setup = sub.add_parser('setup', help='Create a local .env from template')
     p_setup.add_argument('--force', action='store_true', help='Overwrite existing .env')
 
-    p_cfg = sub.add_parser('config', help='Show key configuration values')
-    p_cfg.add_argument('--section', choices=['all', 'db', 'redis', 'retention'], default='all')
+    p_cfg = sub.add_parser('config', help='Show key configuration values or manage dynamic config')
+    p_cfg.add_argument('--section', choices=['all', 'db', 'redis', 'retention'], default='all', help='Print configuration sections (default: all)')
+    p_cfg.add_argument('--get', dest='get_key', help='Get dynamic config key (Redis)')
+    p_cfg.add_argument('--set', dest='set_kv', nargs=2, metavar=('KEY', 'VALUE'), help='Set dynamic config key (Redis)')
+    p_cfg.add_argument('--publish', action='store_true', help='Publish change notification on set')
+    p_cfg.add_argument('--list', dest='list_keys', action='store_true', help='List all dynamic config keys from Redis')
 
     p_logs = sub.add_parser('logs', help='Print suggested log commands for a service')
     p_logs.add_argument('--service', required=True,
                         choices=['ingestor', 'alerter', 'forwarder', 'webui', 'remediation'])
     p_logs.add_argument('--tail', type=int, default=200)
+    p_logs.add_argument('--follow', action='store_true', help='Follow logs via docker-compose if available')
 
     p_up = sub.add_parser('up', help='Bring up services via docker-compose')
     p_up.add_argument('services', nargs='*', help='Optional list of services to start')
@@ -348,9 +463,9 @@ def main(argv=None) -> int:
     if args.command == 'setup':
         return cmd_setup(force=args.force)
     if args.command == 'config':
-        return cmd_config(section=args.section)
+        return cmd_config(section=args.section, get_key=getattr(args, 'get_key', None), set_kv=getattr(args, 'set_kv', None), publish=getattr(args, 'publish', False), list_keys=getattr(args, 'list_keys', False))
     if args.command == 'logs':
-        return cmd_logs(service=args.service, tail=args.tail)
+        return cmd_logs(service=args.service, tail=args.tail, follow=args.follow)
     if args.command == 'up':
         return cmd_up(services=args.services)
     if args.command == 'test':
