@@ -139,15 +139,25 @@ if True:
       'mutt_alerter_processing_list_depth',
       'Current depth of this worker\'s processing list'
   )
-
+  
+  METRIC_ALERTER_QUEUE_DEPTH = Gauge(
+      'mutt_alerter_queue_depth',
+      'Current depth of the alerter ingest queue'
+  )
+  
+  METRIC_ALERTER_SHED_EVENTS_TOTAL = Counter(
+      'mutt_alerter_shed_events_total',
+      'Total events shed by the alerter due to backpressure',
+      ['mode']  # dlq, defer
+  )
+  
   # =====================================================================
   # LOGGING SETUP WITH CORRELATION ID
   # =====================================================================
-
+  
   # Global context for correlation ID in a non-Flask app
   # We use a thread-local storage for this
-  class CorrelationID:
-      _storage = threading.local()
+  class CorrelationID:      _storage = threading.local()
 
       @staticmethod
       def set(cid):
@@ -348,11 +358,30 @@ if True:
 
   def _get_unhandled_expiry(config: "Config") -> int:
       return _dyn_get_int('unhandled_expiry_seconds', config.UNHANDLED_EXPIRY_SECONDS)
-
+  
+  
+  def _get_alerter_queue_warn_threshold() -> int:
+      """Returns the queue depth to start logging warnings."""
+      return _dyn_get_int('alerter_queue_warn', 1000)
+  
+  
+  def _get_alerter_queue_shed_threshold() -> int:
+      """Returns the queue depth to start shedding load."""
+      return _dyn_get_int('alerter_queue_shed', 2000)
+  
+  
+  def _get_alerter_shed_mode() -> str:
+      """Returns the shedding mode (dlq or defer)."""
+      try:
+          if DYN_CONFIG:
+              return DYN_CONFIG.get('alerter_shed_mode', default='dlq')
+      except Exception:  # pragma: no cover
+          pass
+      return 'dlq'
+  
   # =====================================================================
   # VAULT SECRET MANAGEMENT
   # =====================================================================
-
   def fetch_secrets(config: "Config") -> Tuple[Any, Dict[str, str]]:
       """Connects to Vault, fetches secrets."""
       try:
@@ -1237,14 +1266,56 @@ def create_postgres_pool(config: "Config", secrets: Dict[str, str]) -> psycopg2.
 
       processing_list = f"{config.ALERTER_PROCESSING_LIST_PREFIX}:{config.POD_NAME}"
 
-      while not stop_event.is_set():
-          message_string = None
-          try:
-              # --- Atomically pop from ingest and push to our processing list ---
-              # This is the core of our "at-least-once" guarantee
-              message_string = redis_client.brpoplpush(
-                  config.INGEST_QUEUE_NAME,
-                  processing_list,
+          while not stop_event.is_set():
+              message_string = None
+              try:
+                  # --- Phase 3: Backpressure Check ---
+                  try:
+                      queue_depth = redis_client.llen(config.INGEST_QUEUE_NAME)
+                      METRIC_ALERTER_QUEUE_DEPTH.set(queue_depth)
+      
+                      shed_threshold = _get_alerter_queue_shed_threshold()
+                      warn_threshold = _get_alerter_queue_warn_threshold()
+      
+                      if queue_depth > shed_threshold:
+                          shed_mode = _get_alerter_shed_mode()
+                          logger.warning(
+                              f"SHEDDING LOAD: Queue depth ({queue_depth}) > threshold ({shed_threshold}). "
+                              f"Mode: {shed_mode}"
+                          )
+      
+                          if shed_mode == 'dlq':
+                              # Shed load by moving directly to DLQ without processing
+                              shed_msg = redis_client.rpop(config.INGEST_QUEUE_NAME)
+                              if shed_msg:
+                                  redis_client.lpush(config.ALERTER_DLQ_NAME, shed_msg)
+                                  METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='dlq').inc()
+                                  logger.info(f"Moved event to DLQ: {shed_msg[:MESSAGE_PREVIEW_LENGTH]}")
+                          
+                          elif shed_mode == 'defer':
+                              # Defer processing by sleeping
+                              defer_time_ms = _dyn_get_int('alerter_defer_sleep_ms', 250)
+                              logger.info(f"Deferring processing for {defer_time_ms}ms.")
+                              time.sleep(defer_time_ms / 1000.0)
+                              METRIC_ALERTER_SHED_EVENTS_TOTAL.labels(mode='defer').inc()
+      
+                          time.sleep(0.05)  # Avoid tight loop when shedding/deferring
+                          continue  # Skip normal processing for this cycle
+      
+                      elif queue_depth > warn_threshold:
+                          logger.warning(
+                              f"BACKPRESSURE WARNING: Ingest queue depth ({queue_depth}) "
+                              f"is over warn threshold ({warn_threshold})."
+                          )
+      
+                  except redis.exceptions.RedisError as e:
+                      logger.error(f"Backpressure check failed: {e}")
+                      # Continue normal operation if check fails
+      
+                  # --- Atomically pop from ingest and push to our processing list ---
+                  # This is the core of our "at-least-once" guarantee
+                  message_string = redis_client.brpoplpush(
+                      config.INGEST_QUEUE_NAME,                  processing_list,
                   timeout=config.BRPOPLPUSH_TIMEOUT
               )
 
