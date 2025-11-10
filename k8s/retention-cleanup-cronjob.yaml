@@ -1,0 +1,241 @@
+---
+# MUTT v2.5 - Data Retention Cleanup CronJob
+#
+# Runs retention cleanup on a schedule to enforce data retention policies.
+# Default: Daily at 2 AM (adjust schedule as needed)
+#
+# Usage:
+#   kubectl apply -f retention-cleanup-cronjob.yaml
+#
+# Monitor:
+#   kubectl get cronjobs -n mutt
+#   kubectl get jobs -n mutt
+#   kubectl logs -n mutt job/retention-cleanup-XXXXXXX
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retention-cleanup
+  namespace: mutt
+  labels:
+    app: retention-cleanup
+    component: compliance
+    version: v2.5
+spec:
+  # Run daily at 2 AM
+  # Adjust as needed: "0 2 * * *" = 2 AM daily
+  # "0 */6 * * *" = every 6 hours
+  # "0 0 * * 0" = weekly on Sunday at midnight
+  schedule: "0 2 * * *"
+
+  # Keep last 3 successful jobs and 1 failed job for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+  # Allow concurrent execution
+  # Use "Forbid" to prevent overlapping runs
+  concurrencyPolicy: Forbid
+
+  # Start deadline in seconds (10 minutes)
+  # Job is considered failed if it doesn't start within this time
+  startingDeadlineSeconds: 600
+
+  jobTemplate:
+    metadata:
+      labels:
+        app: retention-cleanup
+        component: compliance
+    spec:
+      # Job timeout: 1 hour
+      # Adjust based on your data volume
+      activeDeadlineSeconds: 3600
+
+      # Don't restart on failure - let next scheduled run handle it
+      backoffLimit: 0
+
+      template:
+        metadata:
+          labels:
+            app: retention-cleanup
+            component: compliance
+          annotations:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "8000"
+        spec:
+          restartPolicy: Never
+
+          # Use service account with database access
+          serviceAccountName: mutt-retention-sa
+
+          containers:
+          - name: retention-cleanup
+            image: mutt/retention:v2.5
+            imagePullPolicy: IfNotPresent
+
+            command:
+            - python3
+            - /app/scripts/retention_cleanup.py
+
+            env:
+            # Database connection
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_host
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_port
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mutt-config
+                  key: db_name
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mutt-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mutt-db-secret
+                  key: password
+
+            # Retention policies (customize as needed)
+            - name: RETENTION_ENABLED
+              value: "true"
+            - name: RETENTION_DRY_RUN
+              value: "false"  # Set to "true" for testing
+            - name: RETENTION_AUDIT_DAYS
+              value: "365"  # 1 year
+            - name: RETENTION_EVENT_AUDIT_DAYS
+              value: "90"   # 90 days
+            - name: RETENTION_METRICS_DAYS
+              value: "90"   # 90 days
+            - name: RETENTION_DLQ_DAYS
+              value: "30"   # 30 days
+            - name: RETENTION_CLEANUP_BATCH_SIZE
+              value: "1000"
+
+            # Logging
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+
+            # Metrics output location
+            - name: RETENTION_METRICS_FILE
+              value: "/var/lib/node_exporter/textfile_collector/retention.prom"
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+            volumeMounts:
+            - name: metrics
+              mountPath: /var/lib/node_exporter/textfile_collector
+
+          # Node exporter sidecar to expose metrics
+          - name: node-exporter
+            image: prom/node-exporter:latest
+            args:
+            - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+            - --web.listen-address=:8000
+            ports:
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+            resources:
+              requests:
+                cpu: 10m
+                memory: 24Mi
+              limits:
+                cpu: 50m
+                memory: 64Mi
+            volumeMounts:
+            - name: metrics
+              mountPath: /var/lib/node_exporter/textfile_collector
+              readOnly: true
+
+          volumes:
+          - name: metrics
+            emptyDir: {}
+
+---
+# ServiceAccount for retention cleanup
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mutt-retention-sa
+  namespace: mutt
+  labels:
+    app: retention-cleanup
+
+---
+# Role for accessing configmaps and secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mutt-retention-role
+  namespace: mutt
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+
+---
+# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mutt-retention-rolebinding
+  namespace: mutt
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mutt-retention-role
+subjects:
+- kind: ServiceAccount
+  name: mutt-retention-sa
+  namespace: mutt
+
+---
+# Service for metrics scraping
+apiVersion: v1
+kind: Service
+metadata:
+  name: retention-cleanup-metrics
+  namespace: mutt
+  labels:
+    app: retention-cleanup
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+spec:
+  selector:
+    app: retention-cleanup
+  ports:
+  - name: metrics
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  clusterIP: None  # Headless service
+
+---
+# ConfigMap example (adjust to your environment)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mutt-config
+  namespace: mutt
+data:
+  db_host: "postgres-service"
+  db_port: "5432"
+  db_name: "mutt"
