@@ -49,6 +49,7 @@ environments, and forwards alerts to downstream systems like Moogsoft.
 Quickstart
 - Developer setup: see `docs/DEV_QUICKSTART.md`
 - Developer CLI: `muttdev` (install with `pip install -e .` to enable console script)
+- Architecture decisions: see `docs/adr/README.md` for key design choices (Redis vs Kafka, Vault, worker architecture, etc.)
 
 v2.5 Highlights (Summary)
 - Dynamic Config: Redis‑backed runtime tuning with Pub/Sub invalidation
