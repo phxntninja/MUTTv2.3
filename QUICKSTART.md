@@ -80,7 +80,7 @@ curl -X POST http://localhost:8080/api/v2/ingest \
 ## Access Services
 
 | Service | URL | Credentials |
-|---------|-----|-------------|
+|---|---|---|
 | **Web UI** | http://localhost:8090 | API Key: `test-api-key-123` |
 | **Prometheus** | http://localhost:9090 | None |
 | **Grafana** | http://localhost:3000 | admin / admin |

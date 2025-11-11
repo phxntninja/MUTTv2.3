@@ -25,13 +25,12 @@ SolarWinds/SNMP/Syslog → [1] Ingest Webhook → Redis (mutt:ingest_queue)
                 [4] Web UI & API Service (Management & Observability)
 
 Component Breakdown
-Table
-Copy
-#	Component	Role	Technology	Key Features
-1	Ingest Webhook Service	HTTP receiver for raw monitoring events	Flask/Gunicorn	Validates JSON, adds correlation IDs, pushes to Redis
-2	Event Processor Service	Core rule-matching and decision engine	Python worker	BRPOPLPUSH reliability, in-memory cache, Lua atomic operations
-3	Moog Forwarder Service	API forwarder with rate limiting	Python worker	Shared Redis rate limiter, exponential backoff, DLQ
-4	Web UI & API Service	Management dashboard and API	Flask	Real-time metrics, full CRUD API for rules/hosts/teams
+| # | Component | Role | Technology | Key Features |
+|---|---|---|---|---|
+| 1 | Ingest Webhook Service | HTTP receiver for raw monitoring events | Flask/Gunicorn | Validates JSON, adds correlation IDs, pushes to Redis |
+| 2 | Event Processor Service | Core rule-matching and decision engine | Python worker | BRPOPLPUSH reliability, in-memory cache, Lua atomic operations |
+| 3 | Moog Forwarder Service | API forwarder with rate limiting | Python worker | Shared Redis rate limiter, exponential backoff, DLQ |
+| 4 | Web UI & API Service | Management dashboard and API | Flask | Real-time metrics, full CRUD API for rules/hosts/teams |
 3. Component Deep Dive
 Component #1: Ingest Webhook Service (NEW - Required for v2.3)
 Purpose: Receive HTTP POST events from monitoring sources and enqueue them.
@@ -112,21 +111,20 @@ Key Config:
 4. Configuration (Environment Variables)
 All v2.3 services are configured exclusively via environment variables. Secrets are managed by HashiCorp Vault.
 Common Variables (All Services)
-Table
-Copy
-Variable	Example	Description
-REDIS_HOST	redis.prod.svc	Redis hostname
-REDIS_PORT	6379	Redis port
-REDIS_TLS_ENABLED	true	Enable TLS
-REDIS_CA_CERT_PATH	/etc/mutt/certs/redis-ca.pem	CA certificate
-DB_HOST	postgres.prod.svc	PostgreSQL hostname
-DB_PORT	5432	PostgreSQL port
-DB_NAME	mutt_db	Database name
-DB_TLS_ENABLED	true	Enable TLS
-VAULT_ADDR	https://vault.prod.svc:8200	Vault URL
-VAULT_ROLE_ID	mutt-service-role	AppRole Role ID
-VAULT_SECRET_ID_FILE	/etc/mutt/secrets/vault_secret_id	Secret ID file path
-LOG_LEVEL	INFO	Logging level
+| Variable | Example | Description |
+|---|---|---|
+| REDIS_HOST | redis.prod.svc | Redis hostname |
+| REDIS_PORT | 6379 | Redis port |
+| REDIS_TLS_ENABLED | true | Enable TLS |
+| REDIS_CA_CERT_PATH | /etc/mutt/certs/redis-ca.pem | CA certificate |
+| DB_HOST | postgres.prod.svc | PostgreSQL hostname |
+| DB_PORT | 5432 | PostgreSQL port |
+| DB_NAME | mutt_db | Database name |
+| DB_TLS_ENABLED | true | Enable TLS |
+| VAULT_ADDR | https://vault.prod.svc:8200 | Vault URL |
+| VAULT_ROLE_ID | mutt-service-role | AppRole Role ID |
+| VAULT_SECRET_ID_FILE | /etc/mutt/secrets/vault_secret_id | Secret ID file path |
+| LOG_LEVEL | INFO | Logging level |
 Service-Specific Variables
 Event Processor:
 
