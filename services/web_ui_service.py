@@ -53,7 +53,7 @@ if True:
   from prometheus_flask_exporter import PrometheusMetrics
   from prometheus_client import Counter, Gauge, Histogram, generate_latest, REGISTRY
   from functools import wraps
-  from typing import Any, Dict, Optional, Callable
+  from typing import Any, Dict, Optional, Callable, List
   from services.postgres_connector import get_postgres_pool  # type: ignore
   from services.redis_connector import get_redis_pool  # type: ignore
   
@@ -83,6 +83,10 @@ if True:
       get_version_info = None  # type: ignore
       get_api_version = None  # type: ignore
       versioned_endpoint = None  # type: ignore
+
+  # Ensure legacy import path (web_ui_service) points to this module
+  if __name__ != "web_ui_service":
+      sys.modules.setdefault("web_ui_service", sys.modules[__name__])
 
   # SLO Definitions (Phase 3)
   try:

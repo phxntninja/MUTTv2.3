@@ -53,19 +53,20 @@ from datetime import datetime, timezone
 from prometheus_client import start_http_server, Counter, Gauge, Histogram
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Dict, Optional, Tuple
-from redis_connector import get_redis_pool  # type: ignore
-from postgres_connector import get_postgres_pool  # type: ignore
+
+from services.redis_connector import get_redis_pool  # type: ignore
+from services.postgres_connector import get_postgres_pool  # type: ignore
 # Optional DynamicConfig (Phase 1)
 try:
-    from dynamic_config import DynamicConfig  # type: ignore
+    from services.dynamic_config import DynamicConfig  # type: ignore
 except Exception:  # pragma: no cover
     DynamicConfig = None
 DYN_CONFIG = None  # type: ignore[var-annotated]
 
 # Phase 2 Observability (opt-in)
 try:
-    from logging_utils import setup_json_logging  # type: ignore
-    from tracing_utils import setup_tracing, create_span, set_span_attribute  # type: ignore
+    from services.logging_utils import setup_json_logging  # type: ignore
+    from services.tracing_utils import setup_tracing, create_span, set_span_attribute  # type: ignore
 except ImportError:  # pragma: no cover - optional imports
     setup_json_logging = None  # type: ignore
     setup_tracing = None  # type: ignore
