@@ -26,8 +26,21 @@ function Print-Pdf([string]$htmlPath, [string]$pdfPath, [switch]$UsePrintQuery) 
 New-Item -ItemType Directory -Force -Path docs/slides | Out-Null
 
 Print-Pdf -htmlPath "docs/slides/ONE_PAGER.html" -pdfPath "docs/slides/ONE_PAGER.pdf"
-Print-Pdf -htmlPath "docs/slides/mutt_v25_exec.html" -pdfPath "docs/slides/mutt_v25_exec.pdf" -UsePrintQuery
-Print-Pdf -htmlPath "docs/slides/mutt_v25_tech.html" -pdfPath "docs/slides/mutt_v25_tech.pdf" -UsePrintQuery
+
+# Prefer offline decks if present (PowerShell-compatible selection)
+if (Test-Path "docs/slides/mutt_v25_exec_offline.html") {
+  $execHtml = "docs/slides/mutt_v25_exec_offline.html"
+} else {
+  $execHtml = "docs/slides/mutt_v25_exec.html"
+}
+
+if (Test-Path "docs/slides/mutt_v25_tech_offline.html") {
+  $techHtml = "docs/slides/mutt_v25_tech_offline.html"
+} else {
+  $techHtml = "docs/slides/mutt_v25_tech.html"
+}
+
+Print-Pdf -htmlPath $execHtml -pdfPath "docs/slides/mutt_v25_exec.pdf" -UsePrintQuery
+Print-Pdf -htmlPath $techHtml -pdfPath "docs/slides/mutt_v25_tech.pdf" -UsePrintQuery
 
 Write-Host "All PDFs generated under docs/slides" -ForegroundColor Green
-

@@ -1,4 +1,4 @@
-# MUTT Standalone Server Installation Guide (RHEL 8/9)
+# MUTT Standalone Server Installation Guide (RHEL 9)
 
 **Version:** 1.0
 **Last Updated:** 2025-11-10
@@ -11,16 +11,16 @@
 > **Instructions for AI Agents:**
 >
 > *   **Gemini:** This skeleton has been created by Gemini to provide the architectural structure.
-> *   **Codex:** Your task is to fill in all placeholders marked with `[CODEX: ...]`. Replace the placeholder and its description with the exact, complete command or configuration file content suitable for RHEL 8/9.
+> *   **Codex:** Your task is to fill in all placeholders marked with `[CODEX: ...]`. Replace the placeholder and its description with the exact, complete command or configuration file content.
 > *   **Claude:** Your task is to write the narrative text in each section, explaining the steps to the user. You will also add operational checks and verification steps after each major step. Finally, you will perform a full review to ensure the document is coherent and easy to follow.
 
 ---
 
 ## 1. Introduction
 
-**[Claude: Write a brief introduction explaining the purpose of this document. Mention that it provides step-by-step instructions to deploy the MUTT v2.5 application on a standalone RHEL 8/9 server.]**
+**[Claude: Write a brief introduction explaining the purpose of this document. Mention that it provides step-by-step instructions to deploy the MUTT v2.5 application on a standalone RHEL 9 server.]**
 
-This guide assumes you are starting with a fresh RHEL 8 or 9 server and have `sudo` privileges. It also assumes that the external dependencies (PostgreSQL, Redis, Vault) are already set up and network-accessible.
+This guide assumes you are starting with a fresh RHEL 9 server and have `sudo` privileges. It also assumes that the external dependencies (PostgreSQL, Redis, Vault) are already set up and network-accessible.
 
 ---
 
@@ -30,13 +30,13 @@ This guide assumes you are starting with a fresh RHEL 8 or 9 server and have `su
 
 **[Claude: Explain that the first step is to update the system's package lists.]**
 
-**[CODEX: Provide the `dnf` (or `yum`) command to update system packages.]**
+**[CODEX: Provide the `dnf` command to update system packages.]**
 
 ### 2.2. Install Dependencies
 
-**[Claude: Explain that MUTT requires Python, a virtual environment tool, and other build tools to be installed. Mention that on RHEL, some packages are available via AppStream.]**
+**[Claude: Explain that MUTT requires Python, a virtual environment tool, and other build tools to be installed.]**
 
-**[CODEX: Provide the single `dnf` command to install `python3.10`, `python3.10-pip`, `gcc`, and `postgresql-devel`.]**
+**[CODEX: Provide the single `dnf` command to install `python3`, `python3-devel`, `python3-pip`, `gcc`, and `libpq-devel`.]**
 
 ### 2.3. Create Service User
 
@@ -68,7 +68,7 @@ This guide assumes you are starting with a fresh RHEL 8 or 9 server and have `su
 
 **[Claude: Explain the importance of using a virtual environment to isolate Python dependencies.]**
 
-**[CODEX: Provide the commands to create a Python virtual environment in `/opt/mutt/venv` as the `mutt` user, using `python3.10`.]**
+**[CODEX: Provide the commands to create a Python virtual environment in `/opt/mutt/venv` as the `mutt` user.]**
 
 ### 3.5. Install Python Dependencies
 
@@ -138,9 +138,9 @@ This guide assumes you are starting with a fresh RHEL 8 or 9 server and have `su
 
 ## 6. Firewall Configuration
 
-**[Claude: Explain that the firewall needs to be configured to allow traffic to the MUTT services, using `firewalld` on RHEL.]**
+**[Claude: Explain that the firewall needs to be configured to allow traffic to the MUTT services.]**
 
-**[CODEX: Provide the `firewall-cmd` commands to permanently allow traffic on TCP ports 8080, 8081, 8082, 8083, 8084, 8090, 514 and UDP ports 514, 162. Include the command to reload the firewall.]**
+**[CODEX: Provide the `firewall-cmd` commands to allow traffic on TCP ports 8080, 8081, 8082, 8083, 8084, 8090, 514 and UDP ports 514, 162. Include the command to reload the firewall.]**
 
 ---
 
