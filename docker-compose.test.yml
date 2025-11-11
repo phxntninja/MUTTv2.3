@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_DB: mutt
+      POSTGRES_USER: mutt_app
+      POSTGRES_PASSWORD: test123
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/mutt_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+  vault:
+    image: hashicorp/vault:1.13
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+
+  vault-setup:
+    image: hashicorp/vault:1.13
+    depends_on:
+      - vault
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    entrypoint: /bin/sh
+    command: -c "\
+      sleep 2 && \
+      vault secrets enable -path=secret kv-v2 || true && \
+      echo 'path "secret/data/mutt" { capabilities = ["read", "list"] }' > /tmp/mutt-policy.hcl && \
+      vault policy write mutt-policy /tmp/mutt-policy.hcl && \
+      vault write auth/approle/role/mutt token_policies=mutt-policy || true && \
+      ROLE_ID=$(vault read -field=role_id auth/approle/role/mutt/role-id) && \
+      SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/mutt/secret-id) && \
+      vault kv put secret/mutt REDIS_PASS= test DB_PASS=test123 INGEST_API_KEY=test-ingest WEBUI_API_KEY=test-webui MOOG_API_KEY=test-moog && \
+      mkdir -p /secrets && echo "$SECRET_ID" > /secrets/vault_secret_id && \
+      echo "$ROLE_ID" > /secrets/vault_role_id && \
+      tail -f /dev/null"
+    volumes:
+      - ./dev/secrets:/secrets
+
+  mock-moog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python3 services/mock_moog.py
+    ports:
+      - "18083:8080"
+
+  ingestor:
+    build: .
+    depends_on: [redis, vault, vault-setup]
+    environment:
+      SERVER_PORT_INGESTOR: 8080
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TLS_ENABLED: "false"
+      VAULT_ADDR: http://vault:8200
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-mutt} # replaced by mounted file
+      VAULT_SECRET_ID_FILE: /etc/mutt/secrets/vault_secret_id
+      VAULT_SECRETS_PATH: secret/mutt
+      METRICS_PREFIX: mutt:metrics
+    volumes:
+      - ./dev/secrets:/etc/mutt/secrets:ro
+    ports:
+      - "8080:8080"
+    command: python3 ingestor_service.py
+
+  alerter:
+    build: .
+    depends_on: [redis, postgres, vault, vault-setup]
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: mutt
+      DB_USER: mutt_app
+      DB_TLS_ENABLED: "false"
+      VAULT_ADDR: http://vault:8200
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-mutt}
+      VAULT_SECRET_ID_FILE: /etc/mutt/secrets/vault_secret_id
+      VAULT_SECRETS_PATH: secret/mutt
+    volumes:
+      - ./dev/secrets:/etc/mutt/secrets:ro
+    command: python3 services/alerter_service.py
+    ports:
+      - "8082:8082"
+
+  forwarder:
+    build: .
+    depends_on: [redis, vault, vault-setup, mock-moog]
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TLS_ENABLED: "false"
+      VAULT_ADDR: http://vault:8200
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-mutt}
+      VAULT_SECRET_ID_FILE: /etc/mutt/secrets/vault_secret_id
+      VAULT_SECRETS_PATH: secret/mutt
+      MOOG_WEBHOOK_URL: http://mock-moog:8080/events
+      MOOG_WEBHOOK_TIMEOUT: 5
+    volumes:
+      - ./dev/secrets:/etc/mutt/secrets:ro
+    command: python3 moog_forwarder_service.py
+    ports:
+      - "8084:8084"
+
+  webui:
+    build: .
+    depends_on: [redis, postgres, vault, vault-setup]
+    environment:
+      SERVER_PORT_WEBUI: 8090
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TLS_ENABLED: "false"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: mutt
+      DB_USER: mutt_app
+      DB_TLS_ENABLED: "false"
+      VAULT_ADDR: http://vault:8200
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-mutt}
+      VAULT_SECRET_ID_FILE: /etc/mutt/secrets/vault_secret_id
+      VAULT_SECRETS_PATH: secret/mutt
+    volumes:
+      - ./dev/secrets:/etc/mutt/secrets:ro
+    command: python3 web_ui_service.py
+    ports:
+      - "8090:8090"
+

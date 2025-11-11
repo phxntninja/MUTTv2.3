@@ -189,6 +189,38 @@ export RETENTION_DRY_RUN=false
 python scripts/retention_cleanup.py
 ```
 
+### Partition Precreation (Monthly)
+
+Proactively create partitions for `event_audit_log` to avoid runtime overhead.
+
+- Local/cron usage:
+
+  - Script: `scripts/create_monthly_partitions.py`
+  - Env var: `RETENTION_PRECREATE_MONTHS` (default 3)
+  - Helper (cron.monthly): `scripts/cron/mutt-partition-create`
+
+  Example install:
+  ```bash
+  sudo cp scripts/cron/mutt-partition-create /etc/cron.monthly/
+  sudo chmod +x /etc/cron.monthly/mutt-partition-create
+  ```
+
+- Kubernetes CronJob:
+
+  - Manifest: `k8s/partition-create-cronjob.yaml` (runs 01:10 on the 1st of each month)
+  - Set `RETENTION_PRECREATE_MONTHS` via env as needed
+
+Verify partitions:
+```sql
+SELECT child.relname AS partition_name,
+       pg_get_expr(child.relpartbound, child.oid, true) AS range
+FROM pg_inherits
+JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+WHERE parent.relname = 'event_audit_log'
+ORDER BY child.relname DESC;
+```
+
 ---
 
 ## Monitoring
