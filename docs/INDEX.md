@@ -404,3 +404,23 @@ docs/
 **Last Updated:** 2025-11-10
 **Maintained By:** MUTT Operations Team
 **Version:** 2.5
+
+## Slides
+
+| Deck | Audience |
+|------|----------|
+| [One-Pager (HTML, 16:9)](slides/ONE_PAGER.html) | Mixed (exec + tech) |
+| [Executive Deck (Reveal.js)](slides/mutt_v25_exec.html) | Product owners, leadership |
+| [Technical Deck (Reveal.js)](slides/mutt_v25_tech.html) | Architects, engineers |
+
+Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/export_diagrams.ps1 (Windows). Requires Inkscape or rsvg-convert.
+
+## Slides
+
+| Deck | Audience |
+|------|----------|
+| [One-Pager (HTML, 16:9)](slides/ONE_PAGER.html) | Mixed (exec + tech) |
+| [Executive Deck (Reveal.js)](slides/mutt_v25_exec.html) | Product owners, leadership |
+| [Technical Deck (Reveal.js)](slides/mutt_v25_tech.html) | Architects, engineers |
+
+Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/export_diagrams.ps1 (Windows). Requires Inkscape or rsvg-convert.

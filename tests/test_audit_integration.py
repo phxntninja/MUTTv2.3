@@ -24,7 +24,7 @@ class TestAuditTrailIntegration:
     @patch('audit_logger.log_config_change')
     def test_create_rule_generates_audit_log(self, mock_log_config):
         """Test that creating a rule generates an audit log entry"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         # Create app with mocked dependencies
         with patch('web_ui_service.fetch_secrets'), \
@@ -81,7 +81,7 @@ class TestAuditTrailIntegration:
     @patch('audit_logger.log_config_change')
     def test_update_rule_generates_audit_log(self, mock_log_config):
         """Test that updating a rule generates an audit log entry"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         with patch('web_ui_service.fetch_secrets'), \
              patch('web_ui_service.create_redis_pool'), \
@@ -146,7 +146,7 @@ class TestAuditTrailIntegration:
     @patch('audit_logger.log_config_change')
     def test_delete_rule_generates_audit_log(self, mock_log_config):
         """Test that deleting a rule generates an audit log entry"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         with patch('web_ui_service.fetch_secrets'), \
              patch('web_ui_service.create_redis_pool'), \
@@ -208,7 +208,7 @@ class TestAuditTrailIntegration:
     @patch('audit_logger.log_config_change')
     def test_audit_log_failure_does_not_block_operation(self, mock_log_config):
         """Test that audit log failures don't block CRUD operations"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         # Make audit logging raise an exception
         mock_log_config.side_effect = Exception("Audit logging failed")
@@ -254,7 +254,7 @@ class TestAuditTrailIntegration:
     @patch('audit_logger.query_audit_logs')
     def test_audit_api_endpoint_filtering(self, mock_query_audit):
         """Test that the /api/v1/audit endpoint properly passes filters"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         # Mock query_audit_logs return value
         mock_query_audit.return_value = {
@@ -324,7 +324,7 @@ class TestAuditTrailCompleteness:
     @patch('audit_logger.log_config_change')
     def test_audit_captures_correlation_id(self, mock_log_config):
         """Test that audit logs capture correlation IDs from requests"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         with patch('web_ui_service.fetch_secrets'), \
              patch('web_ui_service.create_redis_pool'), \

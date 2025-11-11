@@ -32,8 +32,9 @@
   - [Contributing](#contributing)
   - [License](#license)
   - [Observability](#observability)
-  - [What’s New in v2.5](#whats-new-in-v25)
+  - [What's New in v2.5](#whats-new-in-v25)
   - [API Docs](#api-docs)
+  - [Project Documentation & Rebuild Guides](#project-documentation--rebuild-guides)
   - [Runbook](#runbook)
   - [Dashboards & Alerts](#dashboards--alerts)
   - [Developer CLI](#developer-cli)
@@ -1060,6 +1061,42 @@ More details:
  - Code Modules Overview: `docs/code/MODULES.md`
  - Database Schema: `docs/db/SCHEMA.md`
  - Code Examples: `docs/code/EXAMPLES.md`
+
+## Project Documentation & Rebuild Guides
+
+**Complete rebuild package** (for recreating MUTT v2.5 from scratch in any environment):
+
+- **[Rebuild Bundle Index](docs/REBUILD_BUNDLE_INDEX.md)** - START HERE
+  - Complete navigation guide for AI assistants (Copilot, ChatGPT, etc.) or human developers
+  - Reading order for all documentation (~85 files, 300+ pages)
+  - Minimum viable bundle for limited context
+  - Success criteria and validation checklist
+
+- **[Rebuild Guide](docs/REBUILD_GUIDE.md)** - Implementation Roadmap
+  - Step-by-step specifications for rebuilding from scratch
+  - Phase-based approach (Foundation → Database → Services → Testing → Deployment)
+  - No code - just specifications and patterns
+  - Complete for Foundation, Database, Utilities, and Ingestor (~50%)
+
+- **[Rebuild Quick Reference](docs/REBUILD_QUICK_REFERENCE.md)** - Technical Cheat Sheet
+  - All ports, queues, environment variables in table format
+  - Prometheus metrics catalog
+  - API endpoints reference
+  - Quick commands (Redis, PostgreSQL, systemd)
+
+- **[Project History](docs/PROJECT_HISTORY_COMPLETE.md)** - Complete Chronicle
+  - Full project evolution from v2.3 → v2.5
+  - All 31 handoff documents indexed
+  - Phase-by-phase breakdown
+  - AI collaboration story (Gemini + Claude)
+  - 1000+ lines documenting the entire journey
+
+**Use Cases:**
+- 🔄 Rebuild in isolated environment without code access
+- 🤖 Provide to AI assistants (Copilot) for complete understanding
+- 📚 Educational resource for enterprise microservices patterns
+- 💾 Institutional knowledge preservation
+- 🌍 Port to different technology stack (Go, Java, Node.js, etc.)
 
 ## Service Ports
 

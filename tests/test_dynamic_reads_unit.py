@@ -72,7 +72,7 @@ def test_alerter_dynamic_helpers_override(monkeypatch):
 
 def test_forwarder_dynamic_helpers(monkeypatch):
     try:
-        import moog_forwarder_service as mfs
+        from services import moog_forwarder_service as mfs
     except Exception as e:
         pytest.skip(f"Forwarder module not loadable: {e}")
 
@@ -123,7 +123,7 @@ def test_invalid_dynamic_values_fallback(monkeypatch):
 
     # Forwarder: invalid dynamic values should fall back to static
     try:
-        import moog_forwarder_service as mfs
+        from services import moog_forwarder_service as mfs
     except Exception as e:
         pytest.skip(f"Forwarder module not loadable: {e}")
 

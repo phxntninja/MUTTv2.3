@@ -75,7 +75,7 @@ services:
       - ./dev/secrets:/etc/mutt/secrets:ro
     ports:
       - "8080:8080"
-    command: python3 ingestor_service.py
+    command: python3 services/ingestor_service.py
 
   alerter:
     build: .
@@ -113,7 +113,7 @@ services:
       MOOG_WEBHOOK_TIMEOUT: 5
     volumes:
       - ./dev/secrets:/etc/mutt/secrets:ro
-    command: python3 moog_forwarder_service.py
+    command: python3 services/moog_forwarder_service.py
     ports:
       - "8084:8084"
 
@@ -136,7 +136,6 @@ services:
       VAULT_SECRETS_PATH: secret/mutt
     volumes:
       - ./dev/secrets:/etc/mutt/secrets:ro
-    command: python3 web_ui_service.py
+    command: python3 services/web_ui_service.py
     ports:
       - "8090:8090"
-

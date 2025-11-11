@@ -21,12 +21,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
 class TestVersionHeadersIntegration:
     """Integration tests for version headers on API responses"""
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_api_responses_include_version_headers(self, mock_pg, mock_redis, mock_secrets):
         """Test that all API responses include version headers"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -42,12 +42,12 @@ class TestVersionHeadersIntegration:
         assert 'X-API-Version' in response.headers
         assert 'X-API-Supported-Versions' in response.headers
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_version_endpoint_returns_comprehensive_info(self, mock_pg, mock_redis, mock_secrets):
         """Test that version endpoint returns comprehensive version info"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -80,12 +80,12 @@ class TestVersionHeadersIntegration:
 class TestVersionNegotiation:
     """Integration tests for version negotiation"""
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_accept_version_header_negotiation(self, mock_pg, mock_redis, mock_secrets):
         """Test version negotiation via Accept-Version header"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -101,12 +101,12 @@ class TestVersionNegotiation:
         assert response.status_code == 200
         assert response.headers.get('X-API-Version') == '2.0'
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_x_api_version_header_negotiation(self, mock_pg, mock_redis, mock_secrets):
         """Test version negotiation via X-API-Version header"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -123,12 +123,12 @@ class TestVersionNegotiation:
         # Should still report current version in header
         assert 'X-API-Version' in response.headers
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_unsupported_version_falls_back_gracefully(self, mock_pg, mock_redis, mock_secrets):
         """Test that unsupported version requests still work"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -148,12 +148,12 @@ class TestVersionNegotiation:
 class TestVersionedEndpoints:
     """Integration tests for versioned endpoints"""
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_new_endpoint_has_version_metadata(self, mock_pg, mock_redis, mock_secrets):
         """Test that new endpoints (since 2.0) indicate their version"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -189,12 +189,12 @@ class TestVersionedEndpoints:
 class TestBackwardCompatibility:
     """Tests for backward compatibility support"""
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_v1_requests_still_work(self, mock_pg, mock_redis, mock_secrets):
         """Test that v1 API requests still work"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -243,12 +243,12 @@ class TestDeprecationWarnings:
 class TestVersionDocumentation:
     """Tests for version documentation accuracy"""
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_version_history_is_complete(self, mock_pg, mock_redis, mock_secrets):
         """Test that version history includes all supported versions"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
@@ -265,12 +265,12 @@ class TestVersionDocumentation:
         for version in supported:
             assert version in history, f"Version {version} missing from history"
 
-    @patch('web_ui_service.fetch_secrets')
-    @patch('web_ui_service.create_redis_pool')
-    @patch('web_ui_service.create_postgres_pool')
+    @patch('services.web_ui_service.fetch_secrets')
+    @patch('services.web_ui_service.create_redis_pool')
+    @patch('services.web_ui_service.create_postgres_pool')
     def test_version_changelog_is_present(self, mock_pg, mock_redis, mock_secrets):
         """Test that each version has a changelog"""
-        from web_ui_service import create_app
+        from services.web_ui_service import create_app
 
         app = create_app()
         app.config['TESTING'] = True
