@@ -14,7 +14,8 @@
       "Bash(del temp_ci.yml)",
       "Bash(dir:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nPriority 4: Add ADR index link to main README\n\n- Added prominent link to docs/adr/README.md in Quickstart section\n- Improves discoverability of Architecture Decision Records\n- Provides context about ADR content (Redis vs Kafka, Vault, etc.)\n- Completes Phase 6 Priority 4: Documentation Polish\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nPriority 4: Add ADR index link to main README\n\n- Added prominent link to docs/adr/README.md in Quickstart section\n- Improves discoverability of Architecture Decision Records\n- Provides context about ADR content (Redis vs Kafka, Vault, etc.)\n- Completes Phase 6 Priority 4: Documentation Polish\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd comprehensive Gemini documentation prompt with standalone server focus\n\n- Created detailed documentation task for Gemini (architect)\n- 6 deliverables: System Architecture, Design Rationale, Integration Patterns, \n  Scalability Guide, Deployment Architecture, Evolution Roadmap\n- CRITICAL: Emphasized standalone server (RHEL/systemd) as PRIMARY production model\n- Added detailed requirements for standalone server deployment documentation\n- Included systemd service configuration, directory structure, firewall, SELinux\n- Total scope: ~90-110 pages of architectural documentation\n- Sets foundation for Claude (ops docs) and Codex (API docs) phases\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

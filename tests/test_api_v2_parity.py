@@ -63,6 +63,19 @@ class FakeCursor:
                 {'hostname': 'host-a', 'team_assignment': 'NetOps'},
                 {'hostname': 'host-b', 'team_assignment': 'SRE'},
             ]
+        elif 'from event_audit_log' in q:
+            # Provide a minimal rowset for audit logs
+            self._rows = [
+                {
+                    'id': 1,
+                    'event_timestamp': '2025-11-10T00:00:00Z',
+                    'hostname': 'host-a',
+                    'matched_rule_id': 1,
+                    'handling_decision': 'Page_and_ticket',
+                    'forwarded_to_moog': True,
+                    'raw_message': '{"message": "foo"}'
+                }
+            ]
         elif 'count(*)' in q:
             # For audit-logs count path when exercised
             self._rows = [(0,)]
@@ -183,3 +196,15 @@ class TestV2Parity:
         assert v2.status_code == 200
         assert v1.get_json() == v2.get_json()
 
+    def test_audit_logs_parity(self, monkeypatch):
+        app, w = _make_app(monkeypatch)
+        app.config['DB_POOL'] = FakePool(None)
+        client = app.test_client()
+        headers = {'X-API-KEY': 'test-api-key-123'}
+
+        v1 = client.get('/api/v1/audit-logs?limit=1', headers=headers)
+        v2 = client.get('/api/v2/audit-logs?limit=1', headers=headers)
+
+        assert v1.status_code == 200
+        assert v2.status_code == 200
+        assert v1.get_json() == v2.get_json()

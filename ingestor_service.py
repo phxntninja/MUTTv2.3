@@ -598,6 +598,7 @@
           try:
               resp.headers['X-API-Version'] = 'v2.5'
               resp.headers['X-API-Deprecated'] = 'true' if request.path.startswith('/api/v1/') else 'false'
+              resp.headers['X-API-Supported-Versions'] = 'v2.5, v2.0, v1.0'
           except Exception:
               pass
           return resp

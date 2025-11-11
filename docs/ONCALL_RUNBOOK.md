@@ -6,7 +6,7 @@ Common checks and remedies for MUTT v2.5 services.
 - Web UI: `GET /health` on port 8090
 - Ingestor: `GET /health` on port 8080
 - Alerter: `GET /health` on port 8081
-- Moog Forwarder: `GET /health` on port 8082
+- Moog Forwarder: `GET /health` on port 8084
 
 ## Vault Issues
 - Check Vault reachability: `curl -s $VAULT_ADDR/v1/sys/health | jq`
@@ -27,6 +27,27 @@ Common checks and remedies for MUTT v2.5 services.
 ## Secret Rotation (Zero‑Downtime)
 - Follow `docs/SECRET_ROTATION_PROCEDURE.md`
 - Always keep both CURRENT and NEXT valid in backends during promotion window
+
+## API Key Rotation (Ingestor/Web UI)
+
+MUTT uses API keys for Ingestor (`X-API-KEY` on /api/v2/ingest) and Web UI APIs. Unlike DB/Redis credentials,
+dual-key rotation is not currently supported in-app; plan a brief restart window.
+
+Recommended procedure (staging → prod):
+1. Generate new keys and store in Vault at `secret/mutt`:
+   - `INGEST_API_KEY`, `WEBUI_API_KEY`
+2. In staging, restart the corresponding service(s) to pick up new keys (watch `/health` + logs).
+3. Validate with curl:
+   - Ingest: `curl -s -X POST http://<ingestor>:8080/api/v2/ingest -H 'X-API-KEY: <NEW>' -d '{...}'`
+   - Web UI: `curl -s -H 'X-API-KEY: <NEW>' http://<webui>:8090/api/v2/rules`
+4. For production, schedule a maintenance window:
+   - Restart Ingestor and Web UI to load new keys
+   - Update upstream senders/clients to the new key
+5. Confirm new key works, then remove the old key from Vault.
+
+Notes:
+- Keys are compared using constant-time checks to mitigate timing attacks.
+- If strict zero-downtime is needed, consider introducing a temporary dual-key check in code or a proxy layer.
 
 ## Rate Limiting (Moog Forwarder)
 - Hits metric: `mutt_moog_rate_limit_hits_total`

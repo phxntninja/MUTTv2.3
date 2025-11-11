@@ -543,7 +543,7 @@ v2.5 Highlights (Summary)
 
   | Method | Endpoint        | Description                             |
   |--------|-----------------|-----------------------------------------|
-  | GET    | /api/v1/metrics | Real-time EPS metrics (JSON, cached 5s) |
+  | GET    | /api/v2/metrics | Real-time EPS metrics (JSON, cached 5s) |
   | GET    | /api/v1/slo     | Component SLO status (JSON)             |
 
   SLO Response (example):
@@ -578,11 +578,11 @@ v2.5 Highlights (Summary)
 
   | Method | Endpoint           | Description           |
   |--------|--------------------|-----------------------|
-  | GET    | /api/v1/rules      | List all alert rules  |
-  | POST   | /api/v1/rules      | Create new alert rule |
-  | GET    | /api/v1/rules/{id} | Get specific rule     |
-  | PUT    | /api/v1/rules/{id} | Update rule           |
-  | DELETE | /api/v1/rules/{id} | Delete rule           |
+  | GET    | /api/v2/rules      | List all alert rules  |
+  | POST   | /api/v2/rules      | Create new alert rule |
+  | GET    | /api/v2/rules/{id} | Get specific rule     |
+  | PUT    | /api/v2/rules/{id} | Update rule           |
+  | DELETE | /api/v2/rules/{id} | Delete rule           |
 
   Create Rule Request:
   {
@@ -601,7 +601,7 @@ v2.5 Highlights (Summary)
 
   | Method | Endpoint           | Description                |
   |--------|--------------------|----------------------------|
-  | GET    | /api/v1/audit-logs | Get audit logs (paginated) |
+  | GET    | /api/v2/audit-logs | Get audit logs (paginated) |
 
   Query Parameters:
   - page: Page number (default: 1)
@@ -612,25 +612,25 @@ v2.5 Highlights (Summary)
   - end_date: Filter by end date (ISO format)
 
   Example:
-  curl "http://localhost:8090/api/v1/audit-logs?page=1&limit=50&hostname=router1&start_date=2025-11-01" \
+  curl "http://localhost:8090/api/v2/audit-logs?page=1&limit=50&hostname=router1&start_date=2025-11-01" \
     -H "X-API-KEY: your-key"
 
   Dev Hosts API
 
   | Method | Endpoint                     | Description     |
   |--------|------------------------------|-----------------|
-  | GET    | /api/v1/dev-hosts            | List dev hosts  |
-  | POST   | /api/v1/dev-hosts            | Add dev host    |
-  | DELETE | /api/v1/dev-hosts/{hostname} | Remove dev host |
+  | GET    | /api/v2/dev-hosts            | List dev hosts  |
+  | POST   | /api/v2/dev-hosts            | Add dev host    |
+  | DELETE | /api/v2/dev-hosts/{hostname} | Remove dev host |
 
   Device Teams API
 
   | Method | Endpoint                 | Description         |
   |--------|--------------------------|---------------------|
-  | GET    | /api/v1/teams            | List team mappings  |
-  | POST   | /api/v1/teams            | Add team mapping    |
-  | PUT    | /api/v1/teams/{hostname} | Update team mapping |
-  | DELETE | /api/v1/teams/{hostname} | Delete team mapping |
+  | GET    | /api/v2/teams            | List team mappings  |
+  | POST   | /api/v2/teams            | Add team mapping    |
+  | PUT    | /api/v2/teams/{hostname} | Update team mapping |
+  | DELETE | /api/v2/teams/{hostname} | Delete team mapping |
 
   ---
   🐳 Deployment
@@ -1053,6 +1053,60 @@ More details:
 
 - Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
 - API Versioning overview: `docs/API_VERSIONING.md`
+- Config Audit endpoints: `docs/API_CONFIG_AUDIT_ENDPOINTS.md`
+- Integration Testing guide: `docs/INTEGRATION_TESTING.md`
+
+## Service Ports
+
+- Ingestor: 8080 (HTTP: `/health`, `/metrics`, `/api/v2/ingest`)
+- Alerter: 8081 (health), 8082 (Prometheus metrics)
+- Moog Forwarder: 8084 (health), 8083 (Prometheus metrics)
+- Web UI: 8090 (HTTP: `/health`, `/metrics`, dashboard and API)
+
+Ports Diagram:
+- See `docs/images/ports-diagram.svg` for a visual overview of services and ports.
+
+## Common curl Examples
+
+- Health checks
+  - `curl -f http://localhost:8080/health`  # Ingestor
+  - `curl -f http://localhost:8084/health`  # Forwarder
+  - `curl -f http://localhost:8090/health`  # Web UI
+
+- Ingest a test event
+  - `curl -s -X POST http://localhost:8080/api/v2/ingest -H 'Content-Type: application/json' -H 'X-API-KEY: <INGEST_API_KEY>' -d '{"timestamp":"2025-11-10T12:00:00Z","message":"hello","hostname":"test","syslog_severity":4}'`
+
+- Web UI API (requires `X-API-KEY`)
+  - List rules: `curl -s -H 'X-API-KEY: <WEBUI_API_KEY>' http://localhost:8090/api/v2/rules`
+  - Create rule: `curl -s -X POST -H 'Content-Type: application/json' -H 'X-API-KEY: <WEBUI_API_KEY>' http://localhost:8090/api/v2/rules -d '{"match_string":"ERROR","match_type":"contains","priority":100,"prod_handling":"Page_and_ticket","dev_handling":"Ticket_only","team_assignment":"NETO"}'`
+  - Config audit (recent): `curl -s -H 'X-API-KEY: <WEBUI_API_KEY>' 'http://localhost:8090/api/v2/config-audit?limit=10'`
+  - Update rule: `curl -s -X PUT -H 'Content-Type: application/json' -H 'X-API-KEY: <WEBUI_API_KEY>' http://localhost:8090/api/v2/rules/123 -d '{"priority":200, "is_active":false, "reason":"downgrade in staging"}'`
+  - Delete rule: `curl -s -X DELETE -H 'X-API-KEY: <WEBUI_API_KEY>' http://localhost:8090/api/v2/rules/123`
+
+## Key Environment Variables (quick reference)
+
+- Vault / Secrets
+  - `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID_FILE` (path to approle SecretID), `VAULT_SECRETS_PATH`
+
+- Redis
+  - `REDIS_HOST`, `REDIS_PORT`, `REDIS_TLS_ENABLED`, `REDIS_CA_CERT_PATH`
+
+- PostgreSQL
+  - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_TLS_ENABLED`, `DB_TLS_CA_CERT_PATH`
+
+- Ingestor
+  - `SERVER_PORT_INGESTOR` (default 8080), `INGEST_QUEUE_NAME`, `MAX_INGEST_QUEUE_SIZE`, `REQUIRED_FIELDS`
+
+- Web UI
+  - `SERVER_PORT_WEBUI` (default 8090), `AUDIT_LOG_PAGE_SIZE`, `METRICS_CACHE_TTL`
+
+- Moog Forwarder
+  - `MOOG_WEBHOOK_URL`, `MOOG_WEBHOOK_TIMEOUT`
+  - Circuit breaker: `MOOG_CB_FAILURE_THRESHOLD`, `MOOG_CB_OPEN_SECONDS`, `MOOG_CB_KEY_PREFIX`
+  - Retry: `MOOG_MAX_RETRIES`, `MOOG_RETRY_BASE_DELAY`, `MOOG_RETRY_MAX_DELAY`
+  - Rate limiting: `MOOG_RATE_LIMIT`, `MOOG_RATE_PERIOD`, `MOOG_RATE_LIMIT_KEY`
+
+For full lists and descriptions, see service files and `.env.template`.
 
 ## Runbook
 
