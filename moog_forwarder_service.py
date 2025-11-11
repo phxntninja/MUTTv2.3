@@ -464,11 +464,8 @@ if True:
   # RATE LIMITING
   # =====================================================================
 
-  def check_rate_limit(redis_client, config):
-      """
-      Check if we're within rate limit using Redis sliding window.
-      Returns True if allowed, False if rate limited.
-      """
+def check_rate_limit(redis_client, config):
+    """Return True if a send is allowed under the global Redis-backed sliding window rate limit."""
       try:
           now = int(time.time() * 1000)  # Milliseconds
           window_ms = config.MOOG_RATE_PERIOD * 1000
@@ -536,12 +533,7 @@ if True:
   # =====================================================================
 
   def send_to_moog(alert_data, config, secrets):
-      """
-      Sends an alert to Moogsoft webhook.
-
-      Returns:
-          (success: bool, should_retry: bool, error_message: str)
-      """
+      """Send a single alert payload to the Moog webhook; return (success, should_retry, error_msg)."""
       correlation_id = alert_data.get('_correlation_id', 'unknown')
       CorrelationID.set(correlation_id)
 
@@ -642,13 +634,7 @@ if True:
   # =====================================================================
 
   def process_alert(alert_string, config, secrets, redis_client):
-      """
-      Process a single alert from the queue.
-
-      Returns:
-          - alert_string if successful (to LREM from processing list)
-          - None if failed and re-queued or sent to DLQ
-      """
+      """Process one alert from the queue; on success return original string to remove from processing list."""
       try:
           alert_data = json.loads(alert_string)
       except json.JSONDecodeError:

@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Last Updated:** 2025-11-10
-**Status:** Draft
+**Status:** Stable
 **Audience:** Operators, SREs, Engineers
 **Prerequisites:** `SYSTEM_ARCHITECTURE.md`
 
@@ -214,3 +214,11 @@ A `docker-compose.yml` file is provided for standing up the entire MUTT stack (i
 *   **TLS Everywhere:** As mentioned, all network communication is encrypted with TLS. This includes service-to-service, service-to-database, and service-to-Redis.
 *   **API Authentication:** The Ingestor and Web UI APIs are protected by an API key, which must be provided in the `X-API-KEY` header.
 *   **Network Segmentation:** In a high-security environment, the services should be placed in a separate network segment from the data sources and the external Moog AIOps platform, with strict firewall rules controlling traffic between the segments.
+
+---
+
+## See Also
+
+- Code modules and entry points: code/MODULES.md
+- API reference for endpoints and payloads: api/REFERENCE.md
+- OpenAPI specification: api/openapi.yaml

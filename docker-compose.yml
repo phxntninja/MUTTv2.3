@@ -422,7 +422,8 @@ services:
       - "9090:9090"
     volumes:
       - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./configs/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./docs/prometheus/alerts-v25.yml:/etc/prometheus/alerts-v25.yml
+      - ./docs/prometheus/recording-rules-v25.yml:/etc/prometheus/recording-rules-v25.yml
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

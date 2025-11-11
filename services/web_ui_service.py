@@ -469,7 +469,7 @@ def safe_int(value: Any, default: int = 0) -> int:
   # =====================================================================
 
 def create_app() -> Flask:
-      """Creates and configures the Flask application."""
+      """Create and configure the Web UI Flask application (dashboard + CRUD APIs)."""
 
       app = Flask(__name__)
 

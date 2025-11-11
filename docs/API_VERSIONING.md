@@ -27,8 +27,8 @@ Version Aliases
 
 Service Health
 - Health endpoints include `X-API-Version: v2.5`.
-  - Alerter: `GET /health` (port 8081)
-  - Moog Forwarder: `GET /health` (port 8084)
+  - Alerter: `GET /health` (port 8082), metrics on 8081
+  - Moog Forwarder: `GET /health` (port 8084), metrics on 8083
   - Web UI: `GET /health` (port 8090)
   - Ingestor: `GET /health` (port 8080)
 
@@ -39,4 +39,3 @@ Client Guidance
 Notes
 - v2 routes currently return the same payloads as v1 (see tests in `tests/test_api_v2_parity.py`).
 - If/when payloads diverge, negotiation via headers or query (e.g., `Accept-Version`, `X-API-Version`, `?api_version=`) can be introduced incrementally.
-

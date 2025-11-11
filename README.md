@@ -1,6 +1,6 @@
 # MUTT - Multi-Use Telemetry Tool
 
-  [![Version](https://img.shields.io/badge/version-2.3-blue.svg)](https://github.com/yourusername/mutt)
+  [![Version](https://img.shields.io/badge/version-2.5-blue.svg)](https://github.com/yourusername/mutt)
   [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
   [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
@@ -1064,8 +1064,8 @@ More details:
 ## Service Ports
 
 - Ingestor: 8080 (HTTP: `/health`, `/metrics`, `/api/v2/ingest`)
-- Alerter: 8081 (health), 8082 (Prometheus metrics)
-- Moog Forwarder: 8084 (health), 8083 (Prometheus metrics)
+- Alerter: 8081 (Prometheus metrics), 8082 (health)
+- Moog Forwarder: 8083 (Prometheus metrics), 8084 (health)
 - Web UI: 8090 (HTTP: `/health`, `/metrics`, dashboard and API)
 
 Ports Diagram:

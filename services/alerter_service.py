@@ -771,7 +771,7 @@ class RuleMatcher:
 # =====================================================================
 
 def start_heartbeat(config: "Config", redis_client: redis.Redis, stop_event: threading.Event) -> threading.Thread:
-    """Starts a thread to periodically update this worker's heartbeat."""
+    """Start a background thread that updates this worker's Redis heartbeat at a fixed interval."""
 
     def heartbeat_loop():
         heartbeat_key = f"{config.ALERTER_HEARTBEAT_PREFIX}:{config.POD_NAME}"
@@ -793,13 +793,7 @@ def start_heartbeat(config: "Config", redis_client: redis.Redis, stop_event: thr
 
 
 def run_janitor(config: "Config", redis_client: redis.Redis) -> None:
-    """
-    Recovers orphaned messages from dead workers on startup.
-    An orphan is a message in a 'processing' list whose worker
-    no longer has an active heartbeat.
-
-    Uses SCAN instead of KEYS for production safety.
-    """
+    """Recover orphaned messages from dead workers by moving items back to the main queue (uses SCAN)."""
     logger.info("Running janitor process to recover orphaned messages...")
     processing_prefix = config.ALERTER_PROCESSING_LIST_PREFIX
     heartbeat_prefix = config.ALERTER_HEARTBEAT_PREFIX
