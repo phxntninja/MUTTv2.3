@@ -1071,6 +1071,12 @@ More details:
 - Alertmanager example routing: `docs/alertmanager/config-v25.yml`
   - Replace email/webhook with your receivers and global SMTP/webhook config.
 
+## Screenshots
+
+- Dashboard (Metrics + Recent Config Changes): `docs/images/dashboard-config-audit.png`
+  - The Web UI landing page shows current metrics (v2 endpoints) and a compact table of recent configuration changes pulled from `/api/v2/config-audit`.
+  - Place screenshots under `docs/images/` to include in internal documentation or wikis.
+
 ## Developer CLI
 
 Use the lightweight helper for common dev tasks:

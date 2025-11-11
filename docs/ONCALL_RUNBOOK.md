@@ -36,3 +36,31 @@ Common checks and remedies for MUTT v2.5 services.
 - All services log correlation IDs
 - Use `X-Correlation-ID` in requests to trace across services
 
+## Circuit Breaker (Moog Forwarder)
+
+When Moogsoft is degraded or unreachable, the forwarder opens a Redis‑backed circuit breaker to avoid wasteful retries.
+
+- Symptoms
+  - Alerts delayed; forwarder re‑queues instead of sending
+  - `mutt_moog_circuit_open == 1`
+  - Rising `mutt_moog_circuit_trips_total` and `mutt_moog_circuit_blocked_total`
+
+- What to check
+  - Moog webhooks reachable (forwarder health logs, curl the webhook URL from the cluster/node)
+  - Network/TLS issues (timeouts, cert errors)
+  - Forwarder metrics: `:8083/metrics` (Prometheus: `mutt_moog_*` series)
+
+- Tuning (env on forwarder)
+  - `MOOG_CB_FAILURE_THRESHOLD` (default 5)
+  - `MOOG_CB_OPEN_SECONDS` (default 60)
+  - `MOOG_RETRY_BASE_DELAY`, `MOOG_RETRY_MAX_DELAY`
+
+- Manual reset (last resort)
+  - Clear CB keys in Redis (shared across replicas):
+    - `DEL mutt:circuit:moog:open`
+    - `DEL mutt:circuit:moog:failures`
+  - Only after Moog is healthy to avoid immediate re‑trip.
+
+- Alerts
+  - `MUTTMoogCircuitOpen` (see `docs/prometheus/alerts-v25.yml`)
+  - Consider paging if open > N minutes in production

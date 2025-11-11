@@ -84,6 +84,7 @@ jobs:
             tests/test_versioning_integration.py \
             tests/test_api_v2_parity.py \
             tests/test_config_audit_api.py
+          python -m coverage report --fail-under=80
 
       - name: Upload coverage XML
         uses: actions/upload-artifact@v4
