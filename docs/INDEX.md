@@ -15,10 +15,13 @@ Operational (Claude)
 
 Code‑Level (Codex)
 - API Reference: docs/api/REFERENCE.md
+- OpenAPI Spec (YAML): docs/api/openapi.yaml
+- ReDoc Viewer: docs/api/redoc.html
 - Code Modules: docs/code/MODULES.md
 - Database Schema: docs/db/SCHEMA.md
 - Code Examples: docs/code/EXAMPLES.md
 - ADR Index: docs/adr/README.md
+- Developer Onboarding: docs/dev/ONBOARDING.md
 
 Navigation
 - README quick start and service ports

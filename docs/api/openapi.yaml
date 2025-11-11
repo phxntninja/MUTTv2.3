@@ -1,0 +1,473 @@
+openapi: 3.0.3
+info:
+  title: MUTT v2.5 API
+  version: 2.5.0
+  description: |
+    API specification for MUTT (Multi‑Use Telemetry Tool) services.
+    Paths default to v2 where available; v1 remains for compatibility.
+servers:
+  - url: http://localhost:8090
+    description: Web UI service (local)
+  - url: http://localhost:8080
+    description: Ingestor service (local)
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        correlation_id:
+          type: string
+      additionalProperties: true
+    IngestEvent:
+      type: object
+      required: [timestamp, message, hostname]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+        hostname:
+          type: string
+        syslog_severity:
+          type: integer
+          minimum: 0
+          maximum: 7
+    IngestResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: queued
+        correlation_id:
+          type: string
+        queue_depth:
+          type: integer
+    MetricsSummary:
+      type: object
+      properties:
+        current_rate_1m:
+          type: number
+          format: float
+        avg_rate_15m:
+          type: number
+          format: float
+        avg_rate_1h:
+          type: number
+          format: float
+    MetricsChart24h:
+      type: object
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+        data:
+          type: array
+          items:
+            type: number
+            format: float
+    MetricsResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/MetricsSummary'
+        chart_24h:
+          $ref: '#/components/schemas/MetricsChart24h'
+    Rule:
+      type: object
+      properties:
+        id:
+          type: integer
+        match_string:
+          type: string
+          nullable: true
+        trap_oid:
+          type: string
+          nullable: true
+        syslog_severity:
+          type: integer
+          nullable: true
+        match_type:
+          type: string
+          enum: [contains, regex, oid_prefix]
+        priority:
+          type: integer
+        prod_handling:
+          type: string
+        dev_handling:
+          type: string
+        team_assignment:
+          type: string
+        is_active:
+          type: boolean
+    RuleCreateRequest:
+      type: object
+      required: [prod_handling, dev_handling, team_assignment]
+      properties:
+        match_string: { type: string, nullable: true }
+        trap_oid: { type: string, nullable: true }
+        syslog_severity: { type: integer, nullable: true }
+        match_type: { type: string, enum: [contains, regex, oid_prefix], default: contains }
+        priority: { type: integer, default: 100 }
+        prod_handling: { type: string }
+        dev_handling: { type: string }
+        team_assignment: { type: string }
+        is_active: { type: boolean, default: true }
+    RuleUpdateRequest:
+      type: object
+      description: Any subset of rule fields; include "reason" to annotate config audit.
+      additionalProperties: true
+      properties:
+        reason:
+          type: string
+    RuleCreateResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        message:
+          type: string
+          example: Rule created successfully
+    AuditLogItem:
+      type: object
+      properties:
+        id: { type: integer }
+        event_timestamp: { type: string, format: date-time }
+        hostname: { type: string }
+        matched_rule_id: { type: integer, nullable: true }
+        handling_decision: { type: string }
+        forwarded_to_moog: { type: boolean }
+    Paginated:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        pages: { type: integer }
+    AuditLogsResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogItem'
+        pagination:
+          $ref: '#/components/schemas/Paginated'
+    ConfigAuditItem:
+      type: object
+      properties:
+        id: { type: integer }
+        changed_at: { type: string, format: date-time }
+        changed_by: { type: string }
+        operation: { type: string, enum: [CREATE, UPDATE, DELETE] }
+        table_name: { type: string }
+        record_id: { type: integer }
+        reason: { type: string, nullable: true }
+        correlation_id: { type: string, nullable: true }
+    ConfigAuditResponse:
+      type: object
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigAuditItem'
+        pagination:
+          $ref: '#/components/schemas/Paginated'
+    DevHost:
+      type: object
+      properties:
+        hostname: { type: string }
+    DevHostsResponse:
+      type: object
+      properties:
+        hosts:
+          type: array
+          items: { $ref: '#/components/schemas/DevHost' }
+    DevHostCreateRequest:
+      type: object
+      required: [hostname]
+      properties:
+        hostname: { type: string }
+    TeamMapping:
+      type: object
+      properties:
+        hostname: { type: string }
+        team_assignment: { type: string }
+    TeamsResponse:
+      type: object
+      properties:
+        teams:
+          type: array
+          items: { $ref: '#/components/schemas/TeamMapping' }
+    TeamCreateRequest:
+      type: object
+      required: [hostname, team_assignment]
+      properties:
+        hostname: { type: string }
+        team_assignment: { type: string }
+    TeamUpdateRequest:
+      type: object
+      required: [team_assignment]
+      properties:
+        team_assignment: { type: string }
+paths:
+  /api/v2/ingest:
+    post:
+      summary: Ingest an event
+      tags: [Ingestor]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestEvent'
+      responses:
+        '200':
+          description: Queued
+          headers:
+            X-API-Version: { schema: { type: string } }
+            X-API-Deprecated: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+        '401': { description: Unauthorized }
+        '503': { description: Service Unavailable }
+
+  /api/v2/metrics:
+    get:
+      summary: Current ingestion metrics
+      tags: [Web UI]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Metrics payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+        '401': { description: Unauthorized }
+
+  /api/v2/rules:
+    get:
+      summary: List alert rules
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items: { $ref: '#/components/schemas/Rule' }
+    post:
+      summary: Create an alert rule
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleCreateResponse'
+
+  /api/v2/rules/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get a rule by id
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Rule' } } } }
+        '404': { description: Not Found }
+    put:
+      summary: Update a rule
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RuleUpdateRequest' }
+      responses:
+        '200': { description: Updated }
+        '404': { description: Not Found }
+    delete:
+      summary: Delete a rule
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not Found }
+
+  /api/v2/audit-logs:
+    get:
+      summary: Event audit logs (paginated)
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: hostname
+          schema: { type: string }
+        - in: query
+          name: rule_id
+          schema: { type: integer }
+        - in: query
+          name: start_date
+          schema: { type: string, format: date-time }
+        - in: query
+          name: end_date
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuditLogsResponse' } } } }
+
+  /api/v2/config-audit:
+    get:
+      summary: Configuration change audit (paginated)
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: changed_by
+          schema: { type: string }
+        - in: query
+          name: table_name
+          schema: { type: string }
+        - in: query
+          name: record_id
+          schema: { type: integer }
+        - in: query
+          name: operation
+          schema: { type: string, enum: [CREATE, UPDATE, DELETE] }
+        - in: query
+          name: start_date
+          schema: { type: string, format: date-time }
+        - in: query
+          name: end_date
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ConfigAuditResponse' } } } }
+
+  /api/v2/dev-hosts:
+    get:
+      summary: List development hosts
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevHostsResponse' }
+    post:
+      summary: Add a development host
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DevHostCreateRequest' }
+      responses:
+        '201': { description: Created }
+
+  /api/v2/dev-hosts/{hostname}:
+    parameters:
+      - in: path
+        name: hostname
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Remove a development host
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not Found }
+
+  /api/v2/teams:
+    get:
+      summary: List team mappings
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TeamsResponse' } } } }
+    post:
+      summary: Add a team mapping
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamCreateRequest' }
+      responses:
+        '201': { description: Created }
+
+  /api/v2/teams/{hostname}:
+    parameters:
+      - in: path
+        name: hostname
+        required: true
+        schema: { type: string }
+    put:
+      summary: Update a team mapping
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamUpdateRequest' }
+      responses:
+        '200': { description: Updated }
+        '404': { description: Not Found }
+    delete:
+      summary: Delete a team mapping
+      tags: [Web UI]
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not Found }
+

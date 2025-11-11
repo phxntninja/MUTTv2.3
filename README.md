@@ -1051,10 +1051,15 @@ More details:
 
 ## API Docs
 
+- Master Documentation Index: `docs/INDEX.md`
 - Config management endpoints: `docs/API_CONFIG_ENDPOINTS.md`
 - API Versioning overview: `docs/API_VERSIONING.md`
 - Config Audit endpoints: `docs/API_CONFIG_AUDIT_ENDPOINTS.md`
 - Integration Testing guide: `docs/INTEGRATION_TESTING.md`
+ - API Reference (Code-Level): `docs/api/REFERENCE.md`
+ - Code Modules Overview: `docs/code/MODULES.md`
+ - Database Schema: `docs/db/SCHEMA.md`
+ - Code Examples: `docs/code/EXAMPLES.md`
 
 ## Service Ports
 
