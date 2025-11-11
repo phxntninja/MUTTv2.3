@@ -6,6 +6,36 @@ This is the master index for all MUTT v2.5 documentation. Use this guide to quic
 
 ---
 
+## 🤖 AI Collaboration & Handoff
+
+**Target Audience:** AI Assistants, Project Managers
+
+| Document | Description |
+|----------|-------------|
+| [AI Collaboration Handoff](../AI_COLLABORATION_HANDOFF_completed.md) | Handoff document for AI collaboration |
+| [AI Coordination Status](../AI_COORDINATION_STATUS.md) | Status of AI coordination |
+| [Architect Sign-off](../ARCHITECT_SIGN_OFF.md) | Architect sign-off for v2.5 |
+| [Architect Status for Gemini](../ARCHITECT_STATUS_FOR_GEMINI.md) | Status and next steps for Gemini |
+| [Gemini's Handoff Part 1](../Gemini's%20handoff%20part%201_completed.md) | Gemini's handoff part 1 |
+| [Gemini's Handoff Part 2](../Gemini's%20handoff%20part%202_completed.md) | Gemini's handoff part 2 |
+| [Gemini's Handoff Part 3](../Gemini's%20handoff%20part%203_completed.md) | Gemini's handoff part 3 |
+| [Gemini's Handoff Part 4](../Gemini's%20handoff%20part%204_completed.md) | Gemini's handoff part 4 |
+| [Gemini's Handoff Part 5](../Gemini's%20handoff%20part%205%20-%20Ingest%20Webhook%20Service_completed.md) | Gemini's handoff part 5 |
+| [Gemini's Handoff Part 6](../Gemini's%20handoff%20part%206%20-%20Database%20Schema%20-%20Setup_completed.md) | Gemini's handoff part 6 |
+| [Gemini's Handoff Part 7](../Gemini's%20handoff%20part%207%20-%20Vault%20Setup%20Guide_completed.md) | Gemini's handoff part 7 |
+| [Gemini's Handoff Part 8](../Gemini's%20handoff%20part%208%20-%20Monitoring%20&%20Alerting_completed.md) | Gemini's handoff part 8 |
+| [Gemini's Handoff Part 9](../Gemini's%20handoff%20part%209%20-%20v2.5%20Roadmap%20&%20Enhancement%20Guide_completed.md) | Gemini's handoff part 9 |
+| [Gemini's Handoff Part 10](../Gemini's%20handoff%20part%2010%20-%20Enterprise%20Readiness%20Checklist_completed.md) | Gemini's handoff part 10 |
+| [Handoff 2025-11-09](../HANDOFF_2025-11-09_65PCT_completed.md) | Handoff document from 2025-11-09 |
+| [Handoff Completed](../HANDOFF_completed.md) | Completed handoff document |
+| [Phase 2 Completion Plan Handoff](../Phase_2_Completion_Plan_Handoff_completed.md) | Handoff for Phase 2 completion plan |
+| [Phase 3 Handoff to Codex](../Phase_3_Handoff_to_Codex_completed.md) | Handoff to Codex for Phase 3 |
+| [Phase 4 Handoff](../PHASE_4_HANDOFF.md) | Handoff for Phase 4 |
+| [Phase 6 Completion Status](../PHASE_6_COMPLETION_STATUS.md) | Completion status for Phase 6 |
+| [Phase3 Questions for Gemini](../Phase3_questions_for_Gemini.md) | Questions for Gemini for Phase 3 |
+
+---
+
 ## 📖 Quick Start
 
 **New to MUTT?** Start here:
@@ -399,29 +429,4 @@ docs/
 - Use [ADR Template](adr/ADR_TEMPLATE.md) for architectural decisions
 - Update this index when adding new documentation
 
----
 
-**Last Updated:** 2025-11-10
-**Maintained By:** MUTT Operations Team
-**Version:** 2.5
-
-## Slides
-
-| Deck | Audience |
-|------|----------|
-| [One-Pager (HTML, 16:9)](slides/ONE_PAGER.html) | Mixed (exec + tech) |
-| [Executive Deck (Reveal.js)](slides/mutt_v25_exec.html) | Product owners, leadership |
-| [Technical Deck (Reveal.js)](slides/mutt_v25_tech.html) | Architects, engineers |
-
-Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/export_diagrams.ps1 (Windows). Requires Inkscape or rsvg-convert.
-
-## Slides
-
-| Deck | Audience |
-|------|----------|
-| [One-Pager (HTML, 16:9)](slides/ONE_PAGER.html) | Mixed (exec + tech) |
-| [Executive Deck (Reveal.js)](slides/mutt_v25_exec.html) | Product owners, leadership |
-| [Technical Deck (Reveal.js)](slides/mutt_v25_tech.html) | Architects, engineers |
-
-Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/export_diagrams.ps1 (Windows). Requires Inkscape or rsvg-convert.
-- Presentation Guide: `docs/slides/PRESENTATION_GUIDE.md`

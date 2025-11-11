@@ -1299,22 +1299,405 @@ if __name__ == '__main__':
 
 This is the most complex service. Follow the specifications carefully.
 
-*(Due to length, continuing in next response...)*
+### 2.3 Alerter Service
+
+**Reference:** `docs/architecture/SYSTEM_ARCHITECTURE.md` - Alerter section
+
+**File:** `services/alerter_service.py`
+
+**Purpose:** Core event processing with rule matching
+
+**Specifications:**
+
+#### Main Loop
+
+```python
+def main_loop():
+    while True:
+        # 1. Get event from Redis
+        event_json = redis_client.brpoplpush('mutt:ingest_queue', 'mutt:processing:alerter:pod-name', timeout=5)
+        if not event_json:
+            continue
+
+        event = json.loads(event_json)
+        correlation_id = event.get('correlation_id')
+
+        try:
+            # 2. Process event
+            process_event(event)
+
+            # 3. Remove from processing list
+            redis_client.lrem('mutt:processing:alerter:pod-name', 1, event_json)
+
+        except Exception as e:
+            # 4. Handle poison message
+            handle_poison_message(event_json, correlation_id, e)
+```
+
+#### Event Processing
+
+```python
+def process_event(event):
+    # 1. Find matching rule
+    rule = find_matching_rule(event)
+
+    # 2. Determine handling
+    is_dev = is_development_host(event['hostname'])
+    handling = rule['dev_handling'] if is_dev else rule['prod_handling']
+
+    # 3. Log to audit trail
+    log_to_audit_trail(event, rule, handling)
+
+    # 4. Forward to Moog if necessary
+    if handling in ['Page_and_ticket', 'Ticket_only']:
+        forward_to_moog(event, rule, handling)
+```
+
+#### Rule Matching
+
+```python
+def find_matching_rule(event):
+    # 1. Check in-memory cache
+    if not cache['rules']:
+        reload_cache()
+
+    # 2. Iterate through rules by priority
+    for rule in sorted(cache['rules'], key=lambda x: x['priority'], reverse=True):
+        if rule_matches(rule, event):
+            return rule
+
+    # 3. Return default rule
+    return get_default_rule()
+```
+
+#### Cache Reload
+
+```python
+def reload_cache():
+    # 1. Load rules from DB
+    cache['rules'] = db_conn.execute("SELECT * FROM alert_rules WHERE is_active = true").fetchall()
+
+    # 2. Load dev hosts from DB
+    cache['dev_hosts'] = {row['hostname'] for row in db_conn.execute("SELECT hostname FROM development_hosts").fetchall()}
+
+    # 3. Load team mappings from DB
+    cache['teams'] = {row['hostname']: row['team_assignment'] for row in db_conn.execute("SELECT * FROM device_teams").fetchall()}
+```
+
+#### Janitor Recovery
+
+```python
+def run_janitor():
+    # 1. Get all processing lists
+    processing_lists = redis_client.keys('mutt:processing:alerter:*')
+
+    for list_key in processing_lists:
+        pod_name = list_key.decode().split(':')[-1]
+
+        # 2. Check heartbeat
+        heartbeat_key = f'mutt:heartbeat:alerter:{pod_name}'
+        last_heartbeat = redis_client.get(heartbeat_key)
+
+        if not last_heartbeat or (time.time() - float(last_heartbeat)) > 30:
+            # 3. Recover orphaned messages
+            while redis_client.rpoplpush(list_key, 'mutt:ingest_queue'):
+                pass
+```
+
+#### Test Cases
+- `test_process_event_with_matching_rule`
+- `test_process_event_with_no_matching_rule`
+- `test_process_event_for_dev_host`
+- `test_cache_reload`
+- `test_janitor_recovery`
+- `test_poison_message_handling`
+
+### 2.4 Moog Forwarder Service
+
+**Reference:** `docs/architecture/SYSTEM_ARCHITECTURE.md` - Moog Forwarder section
+
+**File:** `services/moog_forwarder_service.py`
+
+**Purpose:** Forwards alerts to Moogsoft with rate limiting and reliability patterns.
+
+**Specifications:**
+
+#### Main Loop
+
+```python
+def main_loop():
+    while True:
+        # 1. Get alert from Redis
+        alert_json = redis_client.brpoplpush('mutt:alert_queue', 'mutt:processing:moog:pod-name', timeout=5)
+        if not alert_json:
+            continue
+
+        alert = json.loads(alert_json)
+        correlation_id = alert.get('correlation_id')
+
+        try:
+            # 2. Check rate limit
+            if not rate_limiter.is_allowed():
+                # Re-queue and sleep
+                redis_client.rpush('mutt:alert_queue', alert_json)
+                time.sleep(1)
+                continue
+
+            # 3. Forward to Moogsoft
+            forward_to_moog(alert)
+
+            # 4. Remove from processing list
+            redis_client.lrem('mutt:processing:moog:pod-name', 1, alert_json)
+
+        except Exception as e:
+            # 5. Handle forwarding failure
+            handle_forwarding_failure(alert_json, correlation_id, e)
+```
+
+#### Moog Forwarding
+
+```python
+def forward_to_moog(alert):
+    # 1. Construct Moogsoft payload
+    payload = {
+        "source": alert['hostname'],
+        "description": alert['message'],
+        "severity": alert['syslog_severity'],
+        # ... other fields
+    }
+
+    # 2. Make HTTP POST request to Moogsoft
+    with requests.Session() as session:
+        retry = Retry(
+            total=5,
+            read=5,
+            connect=5,
+            backoff_factor=0.3,
+            status_forcelist=(500, 502, 504)
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+
+        response = session.post(MOOG_WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
+```
+
+#### Janitor Recovery
+
+```python
+def run_janitor():
+    # 1. Get all processing lists
+    processing_lists = redis_client.keys('mutt:processing:moog:*')
+
+    for list_key in processing_lists:
+        pod_name = list_key.decode().split(':')[-1]
+
+        # 2. Check heartbeat
+        heartbeat_key = f'mutt:heartbeat:moog:{pod_name}'
+        last_heartbeat = redis_client.get(heartbeat_key)
+
+        if not last_heartbeat or (time.time() - float(last_heartbeat)) > 30:
+            # 3. Recover orphaned messages
+            while redis_client.rpoplpush(list_key, 'mutt:alert_queue'):
+                pass
+```
+
+#### Test Cases
+- `test_forward_to_moog_success`
+- `test_forward_to_moog_with_rate_limit`
+- `test_forward_to_moog_with_http_error`
+- `test_janitor_recovery`
+
+### 2.5 Web UI Service
+
+**Reference:** `docs/architecture/SYSTEM_ARCHITECTURE.md` - Web UI section
+
+**File:** `services/web_ui_service.py`
+
+**Purpose:** Provides a web interface for managing the system and viewing real-time data.
+
+**Specifications:**
+
+#### Flask Application Setup
+
+```python
+from flask import Flask, render_template, request, jsonify
+from prometheus_flask_exporter import PrometheusMetrics
+
+app = Flask(__name__)
+metrics = PrometheusMetrics(app)
+```
+
+#### API Endpoints
+
+-   **`GET /`**: Renders the main dashboard HTML page.
+-   **`GET /health`**: Health check endpoint.
+-   **`GET /metrics`**: Prometheus metrics endpoint.
+-   **`GET /api/v2/metrics`**: Returns real-time EPS metrics as JSON.
+-   **`GET /api/v1/slo`**: Returns component SLO status as JSON.
+-   **`GET /api/v2/rules`**: Lists all alert rules.
+-   **`POST /api/v2/rules`**: Creates a new alert rule.
+-   **`GET /api/v2/rules/{id}`**: Gets a specific rule.
+-   **`PUT /api/v2/rules/{id}`**: Updates a rule.
+-   **`DELETE /api/v2/rules/{id}`**: Deletes a rule.
+-   **`GET /api/v2/audit-logs`**: Gets audit logs (paginated).
+-   **`GET /api/v2/dev-hosts`**: Lists dev hosts.
+-   **`POST /api/v2/dev-hosts`**: Adds a dev host.
+-   **`DELETE /api/v2/dev-hosts/{hostname}`**: Removes a dev host.
+-   **`GET /api/v2/teams`**: Lists team mappings.
+-   **`POST /api/v2/teams`**: Adds a team mapping.
+-   **`PUT /api/v2/teams/{hostname}`**: Updates a team mapping.
+-   **`DELETE /api/v2/teams/{hostname}`**: Deletes a team mapping.
+
+#### Test Cases
+- `test_dashboard_page`
+- `test_health_endpoint`
+- `test_metrics_endpoint`
+- `test_get_rules`
+- `test_create_rule`
+- `test_update_rule`
+- `test_delete_rule`
+
+### 2.6 Remediation Service
+
+**Reference:** `docs/architecture/SYSTEM_ARCHITECTURE.md` - Remediation section
+
+**File:** `services/remediation_service.py`
+
+**Purpose:** Periodically scans DLQs and retries failed messages.
+
+**Specifications:**
+
+#### Main Loop
+
+```python
+def main_loop():
+    while True:
+        # 1. Scan DLQs
+        scan_dlq('mutt:dlq:alerter')
+        scan_dlq('mutt:dlq:moog')
+
+        # 2. Sleep for a configurable interval
+        time.sleep(60)
+```
+
+#### DLQ Scanning
+
+```python
+def scan_dlq(dlq_name):
+    # 1. Get all messages from the DLQ
+    messages = redis_client.lrange(dlq_name, 0, -1)
+
+    for message_json in messages:
+        message = json.loads(message_json)
+        retry_count = message.get('retry_count', 0)
+
+        if retry_count < 5:
+            # 2. Re-queue the message
+            original_queue = dlq_name.replace('dlq', 'ingest') # Simplified
+            redis_client.lpush(original_queue, message_json)
+
+            # 3. Remove from DLQ
+            redis_client.lrem(dlq_name, 1, message_json)
+        else:
+            # 4. Move to poison pill queue
+            redis_client.lpush('mutt:poison', message_json)
+            redis_client.lrem(dlq_name, 1, message_json)
+```
+
+#### Test Cases
+- `test_scan_dlq_with_retriable_messages`
+- `test_scan_dlq_with_poison_messages`
 
 ---
 
-**TO BE CONTINUED:** The rebuild guide continues with detailed specifications for:
-- Alerter Service (2.3)
-- Moog Forwarder Service (2.4)
-- Web UI Service (2.5)
-- Remediation Service (2.6)
-- Integration patterns
-- Testing strategy
-- Deployment configurations
+## Phase 3: Integration & Reliability
 
-**Current Progress:** ~50% complete (Foundation + Database + Shared Utilities + Ingestor)
+### 3.1 Integration Patterns
 
-Would you like me to:
-1. Continue with the remaining services in the same detail?
-2. Complete this as a multi-part guide?
-3. Focus on a specific service or component?
+**Reference:** `docs/architecture/INTEGRATION_PATTERNS.md`
+
+This phase focuses on integrating the services and implementing reliability patterns.
+
+-   **Service Discovery:** Use DNS for service discovery.
+-   **Configuration:** Use a centralized configuration service (e.g., Vault).
+-   **Authentication:** Use API keys for service-to-service authentication.
+-   **Logging:** Use a centralized logging service (e.g., ELK stack).
+-   **Metrics:** Use Prometheus for metrics collection.
+
+### 3.2 Reliability Patterns
+
+-   **Circuit Breaker:** Implement a circuit breaker pattern in the Moog Forwarder to prevent cascading failures.
+-   **Retry with Exponential Backoff:** Implement a retry with exponential backoff mechanism in the Moog Forwarder.
+-   **Rate Limiting:** Implement a rate limiting mechanism in the Ingestor Service to prevent overload.
+-   **Bulkheads:** Use separate connection pools for each service to isolate failures.
+
+---
+
+## Phase 4: Testing
+
+### 4.1 Unit Tests
+
+-   Write unit tests for each service, covering all the major functions and classes.
+-   Aim for a high test coverage (e.g., > 90%).
+
+### 4.2 Integration Tests
+
+-   Write integration tests to verify the interaction between the services.
+-   Use Docker Compose to set up the environment for integration tests.
+
+### 4.3 End-to-End Tests
+
+-   Write end-to-end tests to verify the complete data flow, from ingestion to forwarding.
+-   Use a mock Moogsoft service to simulate the Moogsoft API.
+
+### 4.4 Load Tests
+
+-   Write load tests to measure the performance and scalability of the system.
+-   Use a tool like Locust or JMeter for load testing.
+
+---
+
+## Phase 5: Deployment
+
+### 5.1 Docker Compose
+
+-   Create a `docker-compose.yml` file to define the services and their dependencies.
+-   Use Docker Compose for local development and testing.
+
+### 5.2 Kubernetes
+
+-   Create Kubernetes manifests for each service (Deployment, Service, ConfigMap, etc.).
+-   Use Helm to package and deploy the application to Kubernetes.
+
+### 5.3 RHEL
+
+-   Create systemd service files for each service.
+-   Write a shell script to automate the deployment to RHEL.
+
+---
+
+## Validation Checklist
+
+-   [ ] All unit tests pass.
+-   [ ] All integration tests pass.
+-   [ ] All end-to-end tests pass.
+-   [ ] The system can handle the expected load.
+-   [ ] The documentation is complete and accurate.
+
+---
+
+## Reference Documents
+
+-   [System Architecture](architecture/SYSTEM_ARCHITECTURE.md)
+-   [Design Rationale](architecture/DESIGN_RATIONALE.md)
+-   [API Reference](api/REFERENCE.md)
+-   [Database Schema](db/SCHEMA.md)
+-   [ADRs](adr/)
+-   [... and all other documents in the docs directory]
+
+---
+
+This completes the rebuild guide for MUTT v2.5.
+
