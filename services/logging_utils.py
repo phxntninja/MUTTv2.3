@@ -190,6 +190,29 @@ class NDJSONFormatter(logging.Formatter):
             )
 
 
+class CorrelationIdFilter(logging.Filter):
+    """
+    Logging filter that injects correlation_id into log records.
+
+    This filter ensures that all log records have a correlation_id field,
+    defaulting to "system" if no correlation ID is present in the context.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Add correlation_id to log record.
+
+        Args:
+            record: LogRecord to enrich
+
+        Returns:
+            True (always allow the record)
+        """
+        if not hasattr(record, "correlation_id") or getattr(record, "correlation_id", None) is None:
+            record.correlation_id = "system"
+        return True
+
+
 class TraceContextFilter(logging.Filter):
     """
     Logging filter that injects OpenTelemetry trace context into log records.
@@ -308,6 +331,9 @@ def setup_json_logging(
             "%(asctime)s - %(levelname)s - [%(correlation_id)s] - %(message)s"
         )
         handler.setFormatter(formatter)
+
+        # Add correlation_id filter to ensure the field is always present
+        logger.addFilter(CorrelationIdFilter())
 
         logger.info(f"Standard logging enabled for service={service_name}")
 

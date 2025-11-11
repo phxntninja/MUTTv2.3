@@ -1,16 +1,26 @@
-# MUTT v2.5 – Current Unified Plan (2025-11-10)
+# MUTT v2.5 – Current Unified Plan (2025-11-11)
 
-Status Summary
-- Phase 1: Infrastructure & Database — COMPLETE
-- Phase 2: Hot Reload & Secrets — COMPLETE
-- Phase 3: Reliability & Observability — COMPLETE (Alerter backpressure, remediation service, SLO endpoint)
-- Next Focus: Phase 4 (API & Compliance), Phase 5 (Developer Experience), plus follow-ups below
+## Status Summary
+- **Phase 1: Infrastructure & Database — Partially Complete (50%)**
+- **Phase 2: Hot Reload & Secrets — Not Started (0%)**
+- **Phase 3: Reliability & Observability — Partially Complete (17%)**
+- **Phase 4: API & Compliance - Not Started (0%)**
+- **Phase 5: Developer Experience & Docs - Not Started (0%)**
+- **Phase 6: Final Testing & Documentation - Partially Complete (80%)**
 
-Guiding References
+## Next Steps
+
+1.  **Update the Task Tracker:** The `V2.5_TASK_TRACKER.md` file must be updated to reflect the actual status of the project. This is the highest priority task.
+2.  **Address the `ImportError`:** The `ImportError` in `tests/test_retention_cleanup.py` must be fixed.
+3.  **Improve Test Coverage:** A comprehensive plan for improving test coverage must be created and executed. The goal should be to reach at least 80% coverage.
+4.  **Complete Phases 4 and 5:** The work on Phase 4 (API & Compliance) and Phase 5 (Developer Experience & Docs) must be started and completed.
+5.  **Consolidate Documentation:** The various status and handoff documents should be consolidated into a single source of truth.
+
+## Guiding References
 - Source of truth for Phase 3 delivery: docs/PHASE_3_HANDOFF_TO_ARCHITECT.md
 - Operator guides: docs/ALERTER_BACKPRESSURE.md, docs/SLOs.md
 
-Phase 4 — API & Compliance
+## Phase 4 — API & Compliance
 - 4.1 Configuration Change Audit
   - Integrate audit logging into Web UI Rule CRUD
   - Add audit log API endpoints
@@ -24,14 +34,14 @@ Phase 4 — API & Compliance
   - Create retention policy enforcement (cron/K8s job)
   - Provide Prometheus recording rules for retention monitoring (if applicable)
 
-Phase 5 — Developer Experience & Docs
+## Phase 5 — Developer Experience & Docs
 - Developer CLI (muttdev)
   - CLI scaffold; `muttdev setup`, `muttdev config`, `muttdev logs`
   - Installation script and quickstart
 - Architecture Decision Records
   - ADR template and ADRs for Redis vs Kafka, Vault vs K8s Secrets, Single-threaded workers, PostgreSQL audit logs
 
-Cross-Cutting Follow-ups (from Architect Handoff)
+## Cross-Cutting Follow-ups (from Architect Handoff)
 - Dashboards & Alerts
   - Update Grafana/Prometheus dashboards to normalized labels
   - Add burn-rate SLO alerting (via /api/v1/slo or Prometheus recording rules)
@@ -47,13 +57,13 @@ Cross-Cutting Follow-ups (from Architect Handoff)
 - Documentation
   - Operator cheat-sheet for dynamic config commands; updated screenshots/examples
 
-Environment & Config Notes
+## Environment & Config Notes
 - Ensure `PROMETHEUS_URL` is set for Web UI
 - Use canonical dynamic config keys for alerter backpressure:
   - `alerter_queue_warn_threshold`, `alerter_queue_shed_threshold`, `alerter_shed_mode` (dlq|defer), `alerter_defer_sleep_ms`
 - Metrics label model normalized to `status={success|fail}` with low-cardinality `reason`
 
-Verification Checklist (quick)
+## Verification Checklist (quick)
 - Alerter warns/sheds per thresholds; metrics update
 - `/api/v1/slo` returns targets, availability, burn rate, error budget
 - Prometheus scrapes all services; recording rules loaded (docs/prometheus/recording-rules-v25.yml)

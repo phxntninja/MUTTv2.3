@@ -5,66 +5,67 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-class TestV25Integration:
-    def _make_webui_app(self, monkeypatch):
-        import services.web_ui_service as webui
+@pytest.fixture(scope="class")
+def app(monkeyclass):
+    import services.web_ui_service as webui
 
-        # Minimal env to satisfy Config validation
-        monkeypatch.setenv("VAULT_ADDR", "http://localhost:8200")
-        monkeypatch.setenv("VAULT_ROLE_ID", "test-role")
+    # Minimal env to satisfy Config validation
+    monkeyclass.setenv("VAULT_ADDR", "http://localhost:8200")
+    monkeyclass.setenv("VAULT_ROLE_ID", "test-role")
 
-        # Avoid real Vault and pools
-        def fake_fetch_secrets(app):
-            app.config["SECRETS"] = {
-                "WEBUI_API_KEY": "it-works",
-                # Provide both legacy and dual keys
-                "REDIS_PASS": "redis",
-                "REDIS_PASS_CURRENT": "redis",
-                "DB_USER": "mutt_app",
-                "DB_PASS": "db",
-                "DB_PASS_CURRENT": "db",
-            }
-        monkeypatch.setattr(webui, "fetch_secrets", fake_fetch_secrets)
+    # Avoid real Vault and pools
+    def fake_fetch_secrets(app):
+        app.config["SECRETS"] = {
+            "WEBUI_API_KEY": "it-works",
+            # Provide both legacy and dual keys
+            "REDIS_PASS": "redis",
+            "REDIS_PASS_CURRENT": "redis",
+            "DB_USER": "mutt_app",
+            "DB_PASS": "db",
+            "DB_PASS_CURRENT": "db",
+        }
+    monkeyclass.setattr(webui, "fetch_secrets", fake_fetch_secrets)
 
-        # Stub pools
-        def fake_create_redis_pool(app):
-            class DummyPool:
-                pass
-            app.redis_pool = DummyPool()
-        monkeypatch.setattr(webui, "create_redis_pool", fake_create_redis_pool)
+    # Stub pools
+    def fake_create_redis_pool(app):
+        class DummyPool:
+            pass
+        app.redis_pool = DummyPool()
+    monkeyclass.setattr(webui, "create_redis_pool", fake_create_redis_pool)
 
-        def fake_create_postgres_pool(app):
-            class DummyPool:
-                def getconn(self):
-                    return object()
-                def putconn(self, _):
-                    return None
-            app.config['DB_POOL'] = DummyPool()
-        monkeypatch.setattr(webui, "create_postgres_pool", fake_create_postgres_pool)
-
-        # Use an in-memory DynamicConfig simulation
-        class FakeDyn:
-            def __init__(self, *_args, **_kwargs):
-                self.store = {}
-            def start_watcher(self):
+    def fake_create_postgres_pool(app):
+        class DummyPool:
+            def getconn(self):
+                return object()
+            def putconn(self, _):
                 return None
-            def get_all(self):
-                return dict(self.store)
-            def get(self, key, default=None):
-                return self.store.get(key, default)
-            def set(self, key, value, notify=True):
-                self.store[key] = str(value)
-        monkeypatch.setattr(webui, "DynamicConfig", FakeDyn)
+        app.config['DB_POOL'] = DummyPool()
+    monkeyclass.setattr(webui, "create_postgres_pool", fake_create_postgres_pool)
 
-        # Stub redis.Redis used by DynamicConfig init paths
-        monkeypatch.setattr(webui, "redis", type("R", (), {"Redis": staticmethod(lambda **kwargs: object())}))
+    # Use an in-memory DynamicConfig simulation
+    class FakeDyn:
+        def __init__(self, *_args, **_kwargs):
+            self.store = {}
+        def start_watcher(self):
+            return None
+        def get_all(self):
+            return dict(self.store)
+        def get(self, key, default=None):
+            return self.store.get(key, default)
+        def set(self, key, value, notify=True):
+            self.store[key] = str(value)
+    monkeyclass.setattr(webui, "DynamicConfig", FakeDyn)
 
-        app = webui.create_app()
-        app.testing = True
-        return app
+    # Stub redis.Redis used by DynamicConfig init paths
+    monkeyclass.setattr(webui, "redis", type("R", (), {"Redis": staticmethod(lambda **kwargs: object())}))
 
-    def test_dynamic_config_end_to_end(self, monkeypatch):
-        app = self._make_webui_app(monkeypatch)
+    app = webui.create_app()
+    app.testing = True
+    return app
+
+@pytest.mark.usefixtures("app")
+class TestV25Integration:
+    def test_dynamic_config_end_to_end(self, app):
         client = app.test_client()
 
         # Update a config key
@@ -86,9 +87,8 @@ class TestV25Integration:
         cfg = resp.get_json()["config"]
         assert cfg.get("cache_reload_interval") == "600"
 
-    def test_audit_logger_called_on_update(self, monkeypatch):
+    def test_audit_logger_called_on_update(self, app, monkeypatch):
         import services.web_ui_service as webui
-        app = self._make_webui_app(monkeypatch)
         calls = {}
         def fake_log_config_change(**kwargs):
             calls["last"] = kwargs

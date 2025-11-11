@@ -13,27 +13,51 @@ import secrets as secrets_module
 import types
 
 
+@pytest.fixture(scope="class")
+def app(monkeyclass):
+    from services import web_ui_service as w
+
+    # Disable DynamicConfig to avoid Redis requirement
+    monkeyclass.setattr(w, 'DynamicConfig', None)
+
+    # Setup SLO_TARGETS for testing
+    test_slo_targets = {
+        "ingestor_availability": {
+            "description": "Ingestor availability",
+            "target": 0.995,
+            "metric_query": "sum(rate(mutt_ingest_requests_total{status='success'}[5m])) / sum(rate(mutt_ingest_requests_total[5m]))",
+            "window_hours": 24,
+            "burn_rate_threshold_warning": 2.0,
+            "burn_rate_threshold_critical": 3.0
+        },
+        "forwarder_availability": {
+            "description": "Forwarder availability",
+            "target": 0.99,
+            "metric_query": "sum(rate(mutt_moog_requests_total{status='success'}[5m])) / sum(rate(mutt_moog_requests_total[5m]))",
+            "window_hours": 24,
+            "burn_rate_threshold_warning": 1.5,
+            "burn_rate_threshold_critical": 2.0
+        }
+    }
+    monkeyclass.setattr(w, 'SLO_TARGETS', test_slo_targets)
+    monkeyclass.setattr(w, 'GLOBAL_SLO_SETTINGS', {})
+
+    # Bypass Vault/Redis/Postgres initialization
+    def fake_fetch_secrets(app):
+        app.config['SECRETS'] = {"WEBUI_API_KEY": "test-api-key-123"}
+    monkeyclass.setattr(w, 'fetch_secrets', fake_fetch_secrets)
+    monkeyclass.setattr(w, 'create_redis_pool', lambda app: None)
+    monkeyclass.setattr(w, 'create_postgres_pool', lambda app: app.config.__setitem__('DB_POOL', None))
+
+    # Build app
+    app = w.create_app()
+    return app
+
+@pytest.mark.usefixtures("app")
 class TestSLOEndpoint:
     """Tests for /api/v1/slo endpoint (mocked Prometheus)."""
 
-    def _make_app(self, monkeypatch):
-        from services import web_ui_service as w
-
-        # Disable DynamicConfig to avoid Redis requirement
-        monkeypatch.setattr(w, 'DynamicConfig', None)
-
-        # Bypass Vault/Redis/Postgres initialization
-        def fake_fetch_secrets(app):
-            app.config['SECRETS'] = {"WEBUI_API_KEY": "test-api-key-123"}
-        monkeypatch.setattr(w, 'fetch_secrets', fake_fetch_secrets)
-        monkeypatch.setattr(w, 'create_redis_pool', lambda app: None)
-        monkeypatch.setattr(w, 'create_postgres_pool', lambda app: app.config.__setitem__('DB_POOL', None))
-
-        # Build app
-        app = w.create_app()
-        return app
-
-    def test_slo_ok_state(self, monkeypatch):
+    def test_slo_ok_state(self, app, monkeypatch):
         from services import web_ui_service as w
 
         # Mock requests.get to return two success values (ingestor, forwarder)
@@ -53,7 +77,6 @@ class TestSLOEndpoint:
             return R(0.999)
         monkeypatch.setattr(w.requests, 'get', fake_get)
 
-        app = self._make_app(monkeypatch)
         client = app.test_client()
         resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
         assert resp.status_code == 200
@@ -64,7 +87,7 @@ class TestSLOEndpoint:
             assert c['state'] == 'ok'
             assert 0 <= c['burn_rate'] <= 1.0
 
-    def test_slo_warn_and_critical_states(self, monkeypatch):
+    def test_slo_warn_and_critical_states(self, app, monkeypatch):
         from services import web_ui_service as w
 
         # Return warn for ingestor (burn_rate == 2), critical for forwarder (burn_rate > 2)
@@ -83,7 +106,6 @@ class TestSLOEndpoint:
             return R(v)
         monkeypatch.setattr(w.requests, 'get', fake_get)
 
-        app = self._make_app(monkeypatch)
         client = app.test_client()
         resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
         assert resp.status_code == 200
@@ -91,7 +113,7 @@ class TestSLOEndpoint:
         assert data['components']['ingestor']['state'] == 'warn'
         assert data['components']['forwarder']['state'] == 'critical'
 
-    def test_slo_single_retry_on_failure(self, monkeypatch):
+    def test_slo_single_retry_on_failure(self, app, monkeypatch):
         from services import web_ui_service as w
 
         # First call fails (timeout), second call succeeds with good value for both queries
@@ -116,7 +138,6 @@ class TestSLOEndpoint:
 
         monkeypatch.setattr(w.requests, 'get', flaky_get)
 
-        app = self._make_app(monkeypatch)
         client = app.test_client()
         resp = client.get('/api/v1/slo', headers={'X-API-KEY': 'test-api-key-123'})
         assert resp.status_code == 200

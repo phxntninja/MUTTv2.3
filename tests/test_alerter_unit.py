@@ -628,10 +628,10 @@ class TestSCANvsKEYS:
 class TestAlerterBackpressure:
     """Unit tests for the alerter's backpressure mechanism."""
 
-    @patch('alerter_service.logger')
-    @patch('alerter_service.METRIC_ALERTER_QUEUE_DEPTH')
-    @patch('alerter_service._get_alerter_queue_warn_threshold', return_value=100)
-    @patch('alerter_service._get_alerter_queue_shed_threshold', return_value=200)
+    @patch('services.alerter_service.logger')
+    @patch('services.alerter_service.METRIC_ALERTER_QUEUE_DEPTH')
+    @patch('services.alerter_service._get_alerter_queue_warn_threshold', return_value=100)
+    @patch('services.alerter_service._get_alerter_queue_shed_threshold', return_value=200)
     def test_backpressure_warning_triggered(
         self, mock_get_shed, mock_get_warn, mock_metric_depth, mock_logger, mock_redis_client
     ):
@@ -654,11 +654,11 @@ class TestAlerterBackpressure:
         mock_logger.warning.assert_called_once()
         assert "BACKPRESSURE WARNING" in mock_logger.warning.call_args[0][0]
 
-    @patch('alerter_service.logger')
-    @patch('alerter_service.METRIC_ALERTER_SHED_EVENTS_TOTAL')
-    @patch('alerter_service.METRIC_ALERTER_QUEUE_DEPTH')
-    @patch('alerter_service._get_alerter_queue_warn_threshold', return_value=100)
-    @patch('alerter_service._get_alerter_queue_shed_threshold', return_value=200)
+    @patch('services.alerter_service.logger')
+    @patch('services.alerter_service.METRIC_ALERTER_SHED_EVENTS_TOTAL')
+    @patch('services.alerter_service.METRIC_ALERTER_QUEUE_DEPTH')
+    @patch('services.alerter_service._get_alerter_queue_warn_threshold', return_value=100)
+    @patch('services.alerter_service._get_alerter_queue_shed_threshold', return_value=200)
     def test_backpressure_shedding_triggered(
         self, mock_get_shed, mock_get_warn, mock_metric_depth, mock_metric_shed, mock_logger, mock_redis_client, mock_config
     ):
@@ -687,8 +687,8 @@ class TestAlerterBackpressure:
         mock_redis_client.lpush.assert_called_once_with(mock_config.ALERTER_DLQ_NAME, shed_message)
         mock_metric_shed.labels(mode='dlq').inc.assert_called_once()
 
-    @patch('alerter_service.logger')
-    @patch('alerter_service.METRIC_ALERTER_SHED_EVENTS_TOTAL')
+    @patch('services.alerter_service.logger')
+    @patch('services.alerter_service.METRIC_ALERTER_SHED_EVENTS_TOTAL')
     def test_backpressure_shedding_adds_reason(self, mock_metric_shed, mock_logger, mock_redis_client, mock_config):
         """Verify shed events are enriched with a shedding_reason before DLQ push."""
         # Setup: queue above threshold and rpop returns a valid JSON event
@@ -716,7 +716,7 @@ class TestAlerterBackpressure:
         assert 'shedding_reason' in pushed_obj
         assert pushed_obj['shedding_reason'].startswith('queue_depth_exceeded:')
 
-    @patch('alerter_service.logger')
+    @patch('services.alerter_service.logger')
     def test_normal_operation_below_thresholds(self, mock_logger, mock_redis_client):
         """Verify no warnings or shedding occurs below thresholds."""
         # Setup

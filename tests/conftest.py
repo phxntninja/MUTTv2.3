@@ -8,6 +8,43 @@ import pytest
 from unittest.mock import MagicMock, Mock
 import redis
 import psycopg2
+from prometheus_client import REGISTRY
+
+
+# --- Prometheus Metrics Cleanup ---
+
+@pytest.fixture(autouse=True, scope="function")
+def cleanup_prometheus_metrics():
+    """
+    Clean up MUTT-specific Prometheus metrics before each test.
+
+    This prevents 'Duplicated timeseries in CollectorRegistry' errors
+    that occur when service modules are imported multiple times during testing.
+    Only removes collectors for metrics starting with 'mutt_', preserving
+    the default Prometheus collectors (platform, process, gc, etc.).
+    """
+    yield  # Run the test first
+
+    # After the test, clean up MUTT metrics
+    collectors_to_remove = []
+    for collector in list(REGISTRY._collector_to_names.keys()):
+        try:
+            # Get the metric names registered by this collector
+            names = REGISTRY._collector_to_names.get(collector, set())
+            # Check if any of the names start with 'mutt_'
+            if any(name.startswith('mutt_') for name in names):
+                collectors_to_remove.append(collector)
+        except Exception:
+            # Skip collectors that don't have the expected structure
+            pass
+
+    # Unregister only MUTT metrics
+    for collector in collectors_to_remove:
+        try:
+            REGISTRY.unregister(collector)
+        except Exception:
+            # Ignore errors during cleanup
+            pass
 
 
 # --- Mock Configuration ---

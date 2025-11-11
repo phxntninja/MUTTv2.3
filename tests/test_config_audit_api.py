@@ -2,70 +2,22 @@
 import pytest
 
 
-def _make_app(monkeypatch):
+@pytest.fixture(scope="module")
+def app(monkeymodule):
     from services import web_ui_service as w
 
     # Bypass external dependencies
-    monkeypatch.setattr(w, 'DynamicConfig', None)
+    monkeymodule.setattr(w, 'DynamicConfig', None)
     def fake_fetch_secrets(app):
         app.config['SECRETS'] = {"WEBUI_API_KEY": "test-api-key-123"}
-    monkeypatch.setattr(w, 'fetch_secrets', fake_fetch_secrets)
-    monkeypatch.setattr(w, 'create_redis_pool', lambda app: None)
-    monkeypatch.setattr(w, 'create_postgres_pool', lambda app: app.config.__setitem__('DB_POOL', None))
+    monkeymodule.setattr(w, 'fetch_secrets', fake_fetch_secrets)
+    monkeymodule.setattr(w, 'create_redis_pool', lambda app: None)
+    monkeymodule.setattr(w, 'create_postgres_pool', lambda app: app.config.__setitem__('DB_POOL', None))
 
-    return w.create_app(), w
-
-
-class FakeCursor:
-    def __init__(self, rows):
-        self._rows = rows
-        self._result = []
-        self.rowcount = 0
-        self._count_mode = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def execute(self, query, params=None):
-        q = ' '.join(query.split()).lower()
-        if q.startswith('select count(*)'):
-            self._result = [(len(self._rows),)]
-        else:
-            self._result = self._rows
-        self.rowcount = len(self._result)
-
-    def fetchall(self):
-        return list(self._result)
-
-    def fetchone(self):
-        return self._result[0] if self._result else None
-
-
-class FakeConn:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def cursor(self, cursor_factory=None):
-        return FakeCursor(self._rows)
-
-
-class FakePool:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def getconn(self):
-        return FakeConn(self._rows)
-
-    def putconn(self, conn):
-        pass
-
+    return w.create_app()
 
 @pytest.mark.unit
-def test_config_audit_list_and_pagination(monkeypatch):
-    app, w = _make_app(monkeypatch)
+def test_config_audit_list_and_pagination(app):
     rows = [
         {
             'id': 1,
@@ -91,8 +43,7 @@ def test_config_audit_list_and_pagination(monkeypatch):
 
 
 @pytest.mark.unit
-def test_config_audit_filters(monkeypatch):
-    app, w = _make_app(monkeypatch)
+def test_config_audit_filters(app):
     # We only validate that endpoint responds; FakeCursor returns same rows irrespective of filters
     rows = [
         {

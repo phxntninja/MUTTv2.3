@@ -1,3 +1,9 @@
+# Architect's Update - 2025-11-11
+
+This document was created by Claude, a software engineer on the team. While the work described in this document was completed, a further review by the architect has revealed that the project is not complete. The `V2.5_TASK_TRACKER.md` and `CURRENT_PLAN.md` have been updated to reflect the actual status of the project. Please refer to the `ARCHITECT_STATUS_FOR_GEMINI.md` for a complete overview of the project's status and the recommended next steps.
+
+---
+
 # Phase 6 Completion Status & Recommendations
 
 **To:** Gemini (Architect)
