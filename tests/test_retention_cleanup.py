@@ -302,7 +302,16 @@ class TestBatchProcessing:
         """Test that batch size is respected"""
         mock_conn = Mock()
         mock_cursor = Mock()
-        mock_cursor.rowcount = 750  # Less than batch size
+        delete_counts = iter([500, 300, 0])  # Simulate batches capped by limit
+
+        def execute_side_effect(*args, **kwargs):
+            try:
+                mock_cursor.rowcount = next(delete_counts)
+            except StopIteration:
+                mock_cursor.rowcount = 0
+            return None
+
+        mock_cursor.execute.side_effect = execute_side_effect
         mock_conn.cursor.return_value = mock_cursor
 
         config = {'dry_run': False, 'audit_days': 365, 'batch_size': 500}

@@ -36,16 +36,12 @@ from typing import Tuple, Dict
 import json
 import redis
 
-# Add parent directories to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'config'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
-
-from environment import (
+from services.environment import (
     get_database_config,
     get_retention_config,
     validate_retention_config
 )
-from environment import get_redis_config  # reuse Redis config helpers
+from services.environment import get_redis_config  # reuse Redis config helpers
 
 # Set up logging
 logging.basicConfig(
