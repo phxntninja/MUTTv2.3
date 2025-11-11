@@ -3,23 +3,45 @@ param(
 )
 
 function Find-Browser {
+  # Allow explicit override via env var
+  if ($env:BROWSER -and (Test-Path $env:BROWSER)) { return $env:BROWSER }
+
   $candidates = @('msedge', 'chrome', 'google-chrome', 'chromium', 'chromium-browser')
   foreach ($c in $candidates) {
     $cmd = Get-Command $c -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Path }
   }
+
+  # Common Windows install paths
+  $paths = @(
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
+    "$env:LocalAppData\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe",
+    "$env:LocalAppData\Google\Chrome\Application\chrome.exe"
+  )
+  foreach ($p in $paths) { if (Test-Path $p) { return $p } }
   return $null
 }
 
 function Print-Pdf([string]$htmlPath, [string]$pdfPath, [switch]$UsePrintQuery) {
-  $abs = Resolve-Path $htmlPath
-  $uri = "file:///" + ($abs -replace '\\','/').TrimStart('/')
+  $absHtml = Resolve-Path $htmlPath
+  $uri = "file:///" + ($absHtml -replace '\\','/').TrimStart('/')
   if ($UsePrintQuery) { $uri = "$uri?print-pdf" }
   $browser = Find-Browser
   if (-not $browser) { throw "No Chromium-based browser found (msedge/chrome)." }
-  if ($VerboseMode) { Write-Host "[pdf] $browser --headless --print-to-pdf=$pdfPath $uri" }
-  & $browser --headless=old --disable-gpu --no-sandbox --print-to-pdf="$pdfPath" "$uri" | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "PDF export failed for $htmlPath" }
+  # Ensure absolute output path for Chrome
+  $pdfAbs = $pdfPath
+  try {
+    $resolved = Resolve-Path $pdfPath -ErrorAction Stop
+    $pdfAbs = $resolved.Path
+  } catch {
+    $pdfAbs = Join-Path (Resolve-Path .) $pdfPath
+  }
+  if ($VerboseMode) { Write-Host "[pdf] $browser --headless --print-to-pdf=$pdfAbs $uri" }
+  & $browser --headless --disable-gpu --no-sandbox --print-to-pdf="$pdfAbs" "$uri" | Out-Null
+  if (-not (Test-Path $pdfAbs)) { throw "PDF export failed or file not created: $pdfAbs" }
   Write-Host "[ok] $pdfPath"
 }
 
