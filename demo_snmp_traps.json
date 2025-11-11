@@ -1,0 +1,952 @@
+[
+    {
+        "source_ip":  "192.168.1.188",
+        "timestamp":  "2025-11-11T16:34:39.7110083Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.1.3.0; value=12345}",
+                          "@{oid=1.3.6.1.2.1.1.5.0; value=core-router-01.dc1.example.com}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.65",
+        "timestamp":  "2025-11-11T16:34:39.7595337Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=2}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=2}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.39",
+        "timestamp":  "2025-11-11T16:34:39.7605544Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.41.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.2; value=5}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.3; value=1}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.4; value=4}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.5; value=3}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.240",
+        "timestamp":  "2025-11-11T16:34:39.7605544Z",
+        "trap_oid":  "1.3.6.1.4.1.2011.5.25.19.2.2.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.2; value=Port 1}",
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.3; value=Link down}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.116",
+        "timestamp":  "2025-11-11T16:34:39.7605544Z",
+        "trap_oid":  "1.3.6.1.4.1.311.1.13.1.3.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.1; value=High CPU usage}",
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.2; value=95}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.29",
+        "timestamp":  "2025-11-11T16:34:39.7615554Z",
+        "trap_oid":  "1.3.6.1.4.1.8072.3.2.10",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.1; value=Disk space low}",
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.2; value=/dev/sda1}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.221",
+        "timestamp":  "2025-11-11T16:34:39.7615554Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2; value=Power supply failed}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.248",
+        "timestamp":  "2025-11-11T16:34:39.7615554Z",
+        "trap_oid":  "1.3.6.1.2.1.15.7.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.15.3.1.2; value=10.0.0.1}",
+                          "@{oid=1.3.6.1.2.1.15.3.1.14; value=6}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.200",
+        "timestamp":  "2025-11-11T16:34:39.7615554Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.23.1.2.1.1.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.23.1.2.1.1.3.1; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.174",
+        "timestamp":  "2025-11-11T16:34:39.7615554Z",
+        "trap_oid":  "1.3.6.1.4.1.232.0.11",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.232.11.2.11.1.2; value=Fan failure}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.134",
+        "timestamp":  "2025-11-11T16:34:39.7625549Z",
+        "trap_oid":  "1.3.6.1.4.1.14179.2.6.3.5",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.14179.2.6.3.5.1; value=Login failed}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.167",
+        "timestamp":  "2025-11-11T16:34:39.7625549Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.171.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.171.1.1.1.2.0; value=Temperature high}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.81",
+        "timestamp":  "2025-11-11T16:34:39.7625549Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.106.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.106.1.2.1.1.14; value=HSRP state change}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.137",
+        "timestamp":  "2025-11-11T16:34:39.7625549Z",
+        "trap_oid":  "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.5.1.9.3.2.1.1.1; value=Loop guard block}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.48",
+        "timestamp":  "2025-11-11T16:34:39.7625549Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.4.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.4.1; value=IP address shunned}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.247",
+        "timestamp":  "2025-11-11T16:34:39.7635279Z",
+        "trap_oid":  "1.3.6.1.2.1.14.16.2.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.14.10.1.6; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.26",
+        "timestamp":  "2025-11-11T16:34:39.7635279Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2.1; value=Fan tray bad}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.104",
+        "timestamp":  "2025-11-11T16:34:39.7645522Z",
+        "trap_oid":  "1.3.6.1.4.1.9.2.2.1.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=3}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=1}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.144",
+        "timestamp":  "2025-11-11T16:34:39.7645522Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.5.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.5.1; value=Deny protocol}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.238",
+        "timestamp":  "2025-11-11T16:34:39.7645522Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.3.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.3.1; value=BGP notification}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.206",
+        "timestamp":  "2025-11-11T16:34:39.7675462Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.1.3.0; value=12345}",
+                          "@{oid=1.3.6.1.2.1.1.5.0; value=core-router-01.dc1.example.com}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.58",
+        "timestamp":  "2025-11-11T16:34:39.7675462Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=2}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=2}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.55",
+        "timestamp":  "2025-11-11T16:34:39.7685464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.41.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.2; value=5}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.3; value=1}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.4; value=4}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.5; value=3}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.129",
+        "timestamp":  "2025-11-11T16:34:39.7685464Z",
+        "trap_oid":  "1.3.6.1.4.1.2011.5.25.19.2.2.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.2; value=Port 1}",
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.3; value=Link down}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.253",
+        "timestamp":  "2025-11-11T16:34:39.7685464Z",
+        "trap_oid":  "1.3.6.1.4.1.311.1.13.1.3.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.1; value=High CPU usage}",
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.2; value=95}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.194",
+        "timestamp":  "2025-11-11T16:34:39.7685464Z",
+        "trap_oid":  "1.3.6.1.4.1.8072.3.2.10",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.1; value=Disk space low}",
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.2; value=/dev/sda1}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.46",
+        "timestamp":  "2025-11-11T16:34:39.7685464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2; value=Power supply failed}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.215",
+        "timestamp":  "2025-11-11T16:34:39.7695482Z",
+        "trap_oid":  "1.3.6.1.2.1.15.7.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.15.3.1.2; value=10.0.0.1}",
+                          "@{oid=1.3.6.1.2.1.15.3.1.14; value=6}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.211",
+        "timestamp":  "2025-11-11T16:34:39.7695482Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.23.1.2.1.1.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.23.1.2.1.1.3.1; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.147",
+        "timestamp":  "2025-11-11T16:34:39.7695482Z",
+        "trap_oid":  "1.3.6.1.4.1.232.0.11",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.232.11.2.11.1.2; value=Fan failure}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.65",
+        "timestamp":  "2025-11-11T16:34:39.7695482Z",
+        "trap_oid":  "1.3.6.1.4.1.14179.2.6.3.5",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.14179.2.6.3.5.1; value=Login failed}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.219",
+        "timestamp":  "2025-11-11T16:34:39.7695482Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.171.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.171.1.1.1.2.0; value=Temperature high}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.194",
+        "timestamp":  "2025-11-11T16:34:39.7705469Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.106.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.106.1.2.1.1.14; value=HSRP state change}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.193",
+        "timestamp":  "2025-11-11T16:34:39.7705469Z",
+        "trap_oid":  "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.5.1.9.3.2.1.1.1; value=Loop guard block}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.195",
+        "timestamp":  "2025-11-11T16:34:39.7705469Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.4.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.4.1; value=IP address shunned}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.207",
+        "timestamp":  "2025-11-11T16:34:39.7705469Z",
+        "trap_oid":  "1.3.6.1.2.1.14.16.2.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.14.10.1.6; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.167",
+        "timestamp":  "2025-11-11T16:34:39.7705469Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2.1; value=Fan tray bad}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.192",
+        "timestamp":  "2025-11-11T16:34:39.7715453Z",
+        "trap_oid":  "1.3.6.1.4.1.9.2.2.1.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=3}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=1}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.119",
+        "timestamp":  "2025-11-11T16:34:39.7715453Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.5.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.5.1; value=Deny protocol}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.69",
+        "timestamp":  "2025-11-11T16:34:39.7715453Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.3.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.3.1; value=BGP notification}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.34",
+        "timestamp":  "2025-11-11T16:34:39.7715453Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.1.3.0; value=12345}",
+                          "@{oid=1.3.6.1.2.1.1.5.0; value=core-router-01.dc1.example.com}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.104",
+        "timestamp":  "2025-11-11T16:34:39.7715453Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=2}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=2}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.144",
+        "timestamp":  "2025-11-11T16:34:39.7725450Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.41.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.2; value=5}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.3; value=1}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.4; value=4}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.5; value=3}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.178",
+        "timestamp":  "2025-11-11T16:34:39.7725450Z",
+        "trap_oid":  "1.3.6.1.4.1.2011.5.25.19.2.2.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.2; value=Port 1}",
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.3; value=Link down}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.245",
+        "timestamp":  "2025-11-11T16:34:39.7725450Z",
+        "trap_oid":  "1.3.6.1.4.1.311.1.13.1.3.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.1; value=High CPU usage}",
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.2; value=95}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.174",
+        "timestamp":  "2025-11-11T16:34:39.7725450Z",
+        "trap_oid":  "1.3.6.1.4.1.8072.3.2.10",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.1; value=Disk space low}",
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.2; value=/dev/sda1}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.119",
+        "timestamp":  "2025-11-11T16:34:39.7725450Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2; value=Power supply failed}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.213",
+        "timestamp":  "2025-11-11T16:34:39.7735461Z",
+        "trap_oid":  "1.3.6.1.2.1.15.7.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.15.3.1.2; value=10.0.0.1}",
+                          "@{oid=1.3.6.1.2.1.15.3.1.14; value=6}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.33",
+        "timestamp":  "2025-11-11T16:34:39.7735461Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.23.1.2.1.1.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.23.1.2.1.1.3.1; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.48",
+        "timestamp":  "2025-11-11T16:34:39.7735461Z",
+        "trap_oid":  "1.3.6.1.4.1.232.0.11",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.232.11.2.11.1.2; value=Fan failure}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.136",
+        "timestamp":  "2025-11-11T16:34:39.7735461Z",
+        "trap_oid":  "1.3.6.1.4.1.14179.2.6.3.5",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.14179.2.6.3.5.1; value=Login failed}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.226",
+        "timestamp":  "2025-11-11T16:34:39.7735461Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.171.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.171.1.1.1.2.0; value=Temperature high}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.153",
+        "timestamp":  "2025-11-11T16:34:39.7745468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.106.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.106.1.2.1.1.14; value=HSRP state change}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.38",
+        "timestamp":  "2025-11-11T16:34:39.7745468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.5.1.9.3.2.1.1.1; value=Loop guard block}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.227",
+        "timestamp":  "2025-11-11T16:34:39.7745468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.4.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.4.1; value=IP address shunned}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.63",
+        "timestamp":  "2025-11-11T16:34:39.7745468Z",
+        "trap_oid":  "1.3.6.1.2.1.14.16.2.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.14.10.1.6; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.113",
+        "timestamp":  "2025-11-11T16:34:39.7745468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2.1; value=Fan tray bad}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.73",
+        "timestamp":  "2025-11-11T16:34:39.7755484Z",
+        "trap_oid":  "1.3.6.1.4.1.9.2.2.1.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=3}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=1}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.194",
+        "timestamp":  "2025-11-11T16:34:39.7755484Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.5.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.5.1; value=Deny protocol}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.77",
+        "timestamp":  "2025-11-11T16:34:39.7755484Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.3.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.3.1; value=BGP notification}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.97",
+        "timestamp":  "2025-11-11T16:34:39.7755484Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.1.3.0; value=12345}",
+                          "@{oid=1.3.6.1.2.1.1.5.0; value=core-router-01.dc1.example.com}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.85",
+        "timestamp":  "2025-11-11T16:34:39.7755484Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=2}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=2}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.75",
+        "timestamp":  "2025-11-11T16:34:39.7765495Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.41.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.2; value=5}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.3; value=1}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.4; value=4}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.5; value=3}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.252",
+        "timestamp":  "2025-11-11T16:34:39.7765495Z",
+        "trap_oid":  "1.3.6.1.4.1.2011.5.25.19.2.2.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.2; value=Port 1}",
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.3; value=Link down}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.161",
+        "timestamp":  "2025-11-11T16:34:39.7765495Z",
+        "trap_oid":  "1.3.6.1.4.1.311.1.13.1.3.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.1; value=High CPU usage}",
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.2; value=95}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.140",
+        "timestamp":  "2025-11-11T16:34:39.7765495Z",
+        "trap_oid":  "1.3.6.1.4.1.8072.3.2.10",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.1; value=Disk space low}",
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.2; value=/dev/sda1}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.46",
+        "timestamp":  "2025-11-11T16:34:39.7775332Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2; value=Power supply failed}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.79",
+        "timestamp":  "2025-11-11T16:34:39.7775332Z",
+        "trap_oid":  "1.3.6.1.2.1.15.7.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.15.3.1.2; value=10.0.0.1}",
+                          "@{oid=1.3.6.1.2.1.15.3.1.14; value=6}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.156",
+        "timestamp":  "2025-11-11T16:34:39.7775332Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.23.1.2.1.1.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.23.1.2.1.1.3.1; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.236",
+        "timestamp":  "2025-11-11T16:34:39.7775332Z",
+        "trap_oid":  "1.3.6.1.4.1.232.0.11",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.232.11.2.11.1.2; value=Fan failure}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.144",
+        "timestamp":  "2025-11-11T16:34:39.7775332Z",
+        "trap_oid":  "1.3.6.1.4.1.14179.2.6.3.5",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.14179.2.6.3.5.1; value=Login failed}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.98",
+        "timestamp":  "2025-11-11T16:34:39.7785464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.171.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.171.1.1.1.2.0; value=Temperature high}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.164",
+        "timestamp":  "2025-11-11T16:34:39.7785464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.106.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.106.1.2.1.1.14; value=HSRP state change}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.195",
+        "timestamp":  "2025-11-11T16:34:39.7785464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.5.1.9.3.2.1.1.1; value=Loop guard block}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.226",
+        "timestamp":  "2025-11-11T16:34:39.7785464Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.4.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.4.1; value=IP address shunned}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.185",
+        "timestamp":  "2025-11-11T16:34:39.7785464Z",
+        "trap_oid":  "1.3.6.1.2.1.14.16.2.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.14.10.1.6; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.207",
+        "timestamp":  "2025-11-11T16:34:39.7795491Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2.1; value=Fan tray bad}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.28",
+        "timestamp":  "2025-11-11T16:34:39.7795491Z",
+        "trap_oid":  "1.3.6.1.4.1.9.2.2.1.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=3}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=1}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.224",
+        "timestamp":  "2025-11-11T16:34:39.7795491Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.5.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.5.1; value=Deny protocol}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.191",
+        "timestamp":  "2025-11-11T16:34:39.7795491Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.3.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.3.1; value=BGP notification}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.238",
+        "timestamp":  "2025-11-11T16:34:39.7805380Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.1.3.0; value=12345}",
+                          "@{oid=1.3.6.1.2.1.1.5.0; value=core-router-01.dc1.example.com}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.238",
+        "timestamp":  "2025-11-11T16:34:39.7805380Z",
+        "trap_oid":  "1.3.6.1.6.3.1.1.5.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=2}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=2}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.201",
+        "timestamp":  "2025-11-11T16:34:39.7805380Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.41.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.2; value=5}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.3; value=1}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.4; value=4}",
+                          "@{oid=1.3.6.1.4.1.9.9.41.1.2.3.1.5; value=3}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.129",
+        "timestamp":  "2025-11-11T16:34:39.7805380Z",
+        "trap_oid":  "1.3.6.1.4.1.2011.5.25.19.2.2.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.2; value=Port 1}",
+                          "@{oid=1.3.6.1.4.1.2011.5.25.19.2.2.1.3; value=Link down}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.99",
+        "timestamp":  "2025-11-11T16:34:39.7805380Z",
+        "trap_oid":  "1.3.6.1.4.1.311.1.13.1.3.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.1; value=High CPU usage}",
+                          "@{oid=1.3.6.1.4.1.311.1.13.1.3.1.1.2; value=95}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.47",
+        "timestamp":  "2025-11-11T16:34:39.7815389Z",
+        "trap_oid":  "1.3.6.1.4.1.8072.3.2.10",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.1; value=Disk space low}",
+                          "@{oid=1.3.6.1.4.1.8072.3.2.10.2; value=/dev/sda1}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.171",
+        "timestamp":  "2025-11-11T16:34:39.7815389Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2; value=Power supply failed}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.239",
+        "timestamp":  "2025-11-11T16:34:39.7815389Z",
+        "trap_oid":  "1.3.6.1.2.1.15.7.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.15.3.1.2; value=10.0.0.1}",
+                          "@{oid=1.3.6.1.2.1.15.3.1.14; value=6}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.68",
+        "timestamp":  "2025-11-11T16:34:39.7815389Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.23.1.2.1.1.3",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.23.1.2.1.1.3.1; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.145",
+        "timestamp":  "2025-11-11T16:34:39.7815389Z",
+        "trap_oid":  "1.3.6.1.4.1.232.0.11",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.232.11.2.11.1.2; value=Fan failure}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.32",
+        "timestamp":  "2025-11-11T16:34:39.7825463Z",
+        "trap_oid":  "1.3.6.1.4.1.14179.2.6.3.5",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.14179.2.6.3.5.1; value=Login failed}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.105",
+        "timestamp":  "2025-11-11T16:34:39.7825463Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.171.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.171.1.1.1.2.0; value=Temperature high}"
+                      ],
+        "severity":  "Informational"
+    },
+    {
+        "source_ip":  "192.168.1.172",
+        "timestamp":  "2025-11-11T16:34:39.7825463Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.106.2.0.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.106.1.2.1.1.14; value=HSRP state change}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.96",
+        "timestamp":  "2025-11-11T16:34:39.7825463Z",
+        "trap_oid":  "1.3.6.1.4.1.9.5.1.9.3.2.1.1",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.5.1.9.3.2.1.1.1; value=Loop guard block}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.140",
+        "timestamp":  "2025-11-11T16:34:39.7825463Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.4.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.4.1; value=IP address shunned}"
+                      ],
+        "severity":  "Warning"
+    },
+    {
+        "source_ip":  "192.168.1.240",
+        "timestamp":  "2025-11-11T16:34:39.7835468Z",
+        "trap_oid":  "1.3.6.1.2.1.14.16.2.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.14.10.1.6; value=OSPF neighbor down}"
+                      ],
+        "severity":  "Critical"
+    },
+    {
+        "source_ip":  "192.168.1.138",
+        "timestamp":  "2025-11-11T16:34:39.7835468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.9.117.1.1.2.1.2",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.9.117.1.1.2.1.2.1; value=Fan tray bad}"
+                      ],
+        "severity":  "Minor"
+    },
+    {
+        "source_ip":  "192.168.1.197",
+        "timestamp":  "2025-11-11T16:34:39.7835468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.2.2.1.1.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.2.1.2.2.1.1; value=3}",
+                          "@{oid=1.3.6.1.2.1.2.2.1.8; value=1}"
+                      ],
+        "severity":  "Alert"
+    },
+    {
+        "source_ip":  "192.168.1.238",
+        "timestamp":  "2025-11-11T16:34:39.7835468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.5.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.5.1; value=Deny protocol}"
+                      ],
+        "severity":  "Major"
+    },
+    {
+        "source_ip":  "192.168.1.121",
+        "timestamp":  "2025-11-11T16:34:39.7835468Z",
+        "trap_oid":  "1.3.6.1.4.1.9.1.1.1.3.0",
+        "variables":  [
+                          "@{oid=1.3.6.1.4.1.9.1.1.1.3.1; value=BGP notification}"
+                      ],
+        "severity":  "Major"
+    }
+]

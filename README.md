@@ -52,6 +52,14 @@ Quickstart
 - Developer CLI: `muttdev` (install with `pip install -e .` to enable console script)
 - Architecture decisions: see `docs/adr/README.md` for key design choices (Redis vs Kafka, Vault, worker architecture, etc.)
 
+Event Replay Tool
+- Enable rsyslog UDP input (example config in `docs/operational/RSYSLOG_UDP_INPUT.conf`), then restart rsyslog.
+- Ensure snmptrapd listens on UDP/162 (e.g., `sudo snmptrapd -On -n -Lo -C -c /etc/snmp/snmptrapd.conf udp:162`).
+- Install dependencies: `pip install -r requirements.txt`.
+- Syslog (200 msg/s): `python mutt_event_sender.py syslog demo_syslog_events.json 127.0.0.1 --rate 200 --facility local0 --syslog-port 514`
+- SNMP traps (50 msg/s): `python mutt_event_sender.py snmptrap demo_snmp_traps.json 127.0.0.1 --rate 50 --community public --snmp-port 162`
+- Dry run: `python mutt_event_sender.py syslog demo_syslog_events.json 127.0.0.1 --dry-run`
+
 v2.5 Highlights (Summary)
 - Dynamic Config: Redis‑backed runtime tuning with Pub/Sub invalidation
 - Observability: Structured logging, metrics, tracing, SLO endpoint and rules

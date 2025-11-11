@@ -17,6 +17,9 @@ redis==5.0.1
 # Vault
 hvac==2.0.0
 
+# SNMP trap sending for demo tooling
+pysnmp==4.4.12
+
 # HTTP Client
 requests==2.31.0
 
