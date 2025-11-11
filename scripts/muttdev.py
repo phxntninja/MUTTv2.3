@@ -287,6 +287,48 @@ def cmd_down(services: List[str]) -> int:
     return _run(cmd, cwd=repo_root)
 
 
+def cmd_retention(dry_run: bool) -> int:
+    """Run retention cleanup locally (optionally DRY RUN)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    script = repo_root / 'scripts' / 'retention_cleanup.py'
+    env = os.environ.copy()
+    if dry_run:
+        env['RETENTION_DRY_RUN'] = 'true'
+    # Use the current Python interpreter
+    try:
+        print("$", sys.executable, str(script))
+        proc = subprocess.run([sys.executable, str(script)], cwd=str(repo_root), env=env)
+        return proc.returncode
+    except FileNotFoundError:
+        print("Python interpreter not found to run retention script.")
+        return 127
+
+
+def cmd_e2e() -> int:
+    """Run docker-compose E2E smoke test via scripts/run_e2e.sh."""
+    repo_root = Path(__file__).resolve().parent.parent
+    runner = repo_root / 'scripts' / 'run_e2e.sh'
+    if not runner.exists():
+        print("scripts/run_e2e.sh not found.")
+        return 1
+    return _run(['bash', str(runner)], cwd=repo_root)
+
+
+def cmd_load(url: str, api_key: str, count: int, threads: int, timeout: float) -> int:
+    """Run ingest load test script with provided parameters."""
+    repo_root = Path(__file__).resolve().parent.parent
+    script = repo_root / 'tests' / 'load' / 'flood_ingest.py'
+    args = [
+        sys.executable, str(script),
+        '--url', url,
+        '--api-key', api_key,
+        '--count', str(count),
+        '--threads', str(threads),
+        '--timeout', str(timeout),
+    ]
+    return _run(args, cwd=repo_root)
+
+
 def cmd_doctor() -> int:
     import shutil as _shutil
     issues = 0
@@ -458,6 +500,21 @@ def main(argv=None) -> int:
     p_type = sub.add_parser('type', help='Type-check with MyPy')
     p_type.add_argument('paths', nargs='*', help='Optional paths (default: services)')
 
+    # Retention cleanup helper
+    p_ret = sub.add_parser('retention', help='Run retention cleanup (local)')
+    p_ret.add_argument('--dry-run', action='store_true', help='Dry-run (no deletes)')
+
+    # E2E compose smoke test
+    sub.add_parser('e2e', help='Run docker-compose E2E smoke test')
+
+    # Ingest load generator
+    p_load = sub.add_parser('load', help='Run ingest load test')
+    p_load.add_argument('--url', required=True, help='Ingest URL, e.g., http://localhost:8080/api/v2/ingest')
+    p_load.add_argument('--api-key', required=True, help='Ingest API key')
+    p_load.add_argument('--count', type=int, default=1000, help='Total messages (default: 1000)')
+    p_load.add_argument('--threads', type=int, default=10, help='Concurrent workers (default: 10)')
+    p_load.add_argument('--timeout', type=float, default=5.0, help='Request timeout seconds (default: 5)')
+
     args = parser.parse_args(argv)
 
     if args.command == 'setup':
@@ -480,6 +537,12 @@ def main(argv=None) -> int:
         return cmd_lint(paths=args.paths)
     if args.command == 'type':
         return cmd_type(paths=args.paths)
+    if args.command == 'retention':
+        return cmd_retention(dry_run=args.dry_run)
+    if args.command == 'e2e':
+        return cmd_e2e()
+    if args.command == 'load':
+        return cmd_load(url=args.url, api_key=args.api_key, count=args.count, threads=args.threads, timeout=args.timeout)
 
     parser.print_help()
     return 1

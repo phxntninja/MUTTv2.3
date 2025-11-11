@@ -50,7 +50,9 @@ jobs:
           python -m pytest -q -n auto \
             tests/test_retention_cleanup.py \
             tests/test_api_versioning.py \
-            tests/test_versioning_integration.py
+            tests/test_versioning_integration.py \
+            tests/test_api_v2_parity.py \
+            tests/test_config_audit_api.py
 
   coverage:
     name: Coverage (ubuntu / Python 3.12)
@@ -79,7 +81,9 @@ jobs:
             --cov-report=xml --cov-report=html \
             tests/test_retention_cleanup.py \
             tests/test_api_versioning.py \
-            tests/test_versioning_integration.py
+            tests/test_versioning_integration.py \
+            tests/test_api_v2_parity.py \
+            tests/test_config_audit_api.py
 
       - name: Upload coverage XML
         uses: actions/upload-artifact@v4
