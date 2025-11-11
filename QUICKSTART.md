@@ -35,7 +35,7 @@ docker-compose logs -f
 - ✅ Vault (port 8200)
 - ✅ MUTT Ingestor (port 8080)
 - ✅ MUTT Alerter (port 8081)
-- ✅ MUTT Moog Forwarder (port 8082)
+- ✅ MUTT Moog Forwarder (ports 8083/8084)
 - ✅ MUTT Web UI (port 8090)
 - ✅ Mock Moog (port 8888)
 - ✅ Prometheus (port 9090)
@@ -58,7 +58,7 @@ curl http://localhost:8080/health
 
 ```bash
 # Send a test syslog message
-curl -X POST http://localhost:8080/ingest \
+curl -X POST http://localhost:8080/api/v2/ingest \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: test-api-key-123" \
   -d '{
