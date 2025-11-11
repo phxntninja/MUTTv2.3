@@ -424,3 +424,4 @@ Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/
 | [Technical Deck (Reveal.js)](slides/mutt_v25_tech.html) | Architects, engineers |
 
 Diagram PNG export helpers: scripts/export_diagrams.sh (Linux/macOS) or scripts/export_diagrams.ps1 (Windows). Requires Inkscape or rsvg-convert.
+- Presentation Guide: `docs/slides/PRESENTATION_GUIDE.md`
