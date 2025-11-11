@@ -1352,8 +1352,16 @@ def create_app() -> Flask:
 
       @app.route('/api/v1/audit', methods=['GET'])
       @require_api_key
-      @versioned_endpoint(since='2.0') if versioned_endpoint else lambda f: f
       def get_config_audit_logs():
+          # Apply optional versioning decorator at runtime if available
+          # This avoids invalid syntax from conditional decorator expressions
+          if versioned_endpoint:
+              # Rebind the function with versioned decorator semantics (since 2.0)
+              decorated = versioned_endpoint(since='2.0')(get_config_audit_logs_inner)
+              return decorated()
+          return get_config_audit_logs_inner()
+
+      def get_config_audit_logs_inner():
           """
           Get configuration change audit logs with advanced filtering.
 

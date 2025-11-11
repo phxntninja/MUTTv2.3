@@ -1335,15 +1335,15 @@ def main():
         message_string = None
         try:
             # --- Phase 3: Backpressure Check ---
-            action = handle_backpressure(config, redis_client)
-            if action in ('shed_dlq', 'defer'):
-                # Skip normal processing for this cycle
-                continue
-    
+            try:
+                action = handle_backpressure(config, redis_client)
+                if action in ('shed_dlq', 'defer'):
+                    # Skip normal processing for this cycle
+                    continue
             except redis.exceptions.RedisError as e:
                 logger.error(f"Backpressure check failed: {e}")
                 # Continue normal operation if check fails
-    
+
             # --- Atomically pop from ingest and push to our processing list ---
             # This is the core of our "at-least-once" guarantee
             message_string = redis_client.brpoplpush(

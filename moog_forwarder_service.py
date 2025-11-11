@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+if True:
   """
   =====================================================================
   MUTT Moog Forwarder Service (v2.3 - Production Ready)
@@ -1014,6 +1015,7 @@
   if __name__ == "__main__":
       main()
 
+  """
   ---
   Key Features of Moog Forwarder v2.3
 
@@ -1107,3 +1109,4 @@
   kill -TERM <pid>
 
   All 4 MUTT services are now complete and production-ready! 🚀
+  """
