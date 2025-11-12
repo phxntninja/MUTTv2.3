@@ -4679,25 +4679,951 @@ This phase focuses on integrating the services and implementing reliability patt
 
 ## Phase 4: Testing
 
-### 4.1 Unit Tests
+This phase provides comprehensive testing strategies, fixtures, and examples for MUTT v2.5.
 
--   Write unit tests for each service, covering all the major functions and classes.
--   Aim for a high test coverage (e.g., > 90%).
+### 4.1 Unit Testing
 
-### 4.2 Integration Tests
+**Target**: 90%+ code coverage for all services
 
--   Write integration tests to verify the interaction between the services.
--   Use Docker Compose to set up the environment for integration tests.
+**Framework**: pytest with pytest-cov, pytest-mock
 
-### 4.3 End-to-End Tests
+#### 4.1.1 Test Configuration (`conftest.py`)
 
--   Write end-to-end tests to verify the complete data flow, from ingestion to forwarding.
--   Use a mock Moogsoft service to simulate the Moogsoft API.
+```python
+"""
+Pytest configuration and shared fixtures
+File: tests/conftest.py
+"""
+import pytest
+import redis
+import psycopg2
+from unittest.mock import MagicMock, Mock
+import json
+import time
 
-### 4.4 Load Tests
+# ===== Redis Fixtures =====
 
--   Write load tests to measure the performance and scalability of the system.
--   Use a tool like Locust or JMeter for load testing.
+@pytest.fixture
+def mock_redis():
+    """Mock Redis client for unit tests"""
+    mock_client = MagicMock(spec=redis.Redis)
+
+    # Mock data storage
+    mock_client._data = {}
+    mock_client._lists = {}
+    mock_client._hashes = {}
+
+    # Mock common Redis operations
+    def lpush(key, *values):
+        if key not in mock_client._lists:
+            mock_client._lists[key] = []
+        mock_client._lists[key].extend(values)
+        return len(mock_client._lists[key])
+
+    def llen(key):
+        return len(mock_client._lists.get(key, []))
+
+    def rpop(key):
+        if key in mock_client._lists and mock_client._lists[key]:
+            return mock_client._lists[key].pop(0)
+        return None
+
+    def get(key):
+        return mock_client._data.get(key)
+
+    def set(key, value):
+        mock_client._data[key] = value
+        return True
+
+    def hgetall(key):
+        return mock_client._hashes.get(key, {})
+
+    def hset(key, field, value):
+        if key not in mock_client._hashes:
+            mock_client._hashes[key] = {}
+        mock_client._hashes[key][field] = value
+        return 1
+
+    mock_client.lpush.side_effect = lpush
+    mock_client.llen.side_effect = llen
+    mock_client.rpop.side_effect = rpop
+    mock_client.get.side_effect = get
+    mock_client.set.side_effect = set
+    mock_client.hgetall.side_effect = hgetall
+    mock_client.hset.side_effect = hset
+    mock_client.ping.return_value = True
+
+    return mock_client
+
+
+@pytest.fixture
+def real_redis():
+    """Real Redis connection for integration tests"""
+    client = redis.Redis(
+        host='localhost',
+        port=6379,
+        db=15,  # Use separate DB for testing
+        decode_responses=False
+    )
+
+    # Clear test DB before each test
+    client.flushdb()
+
+    yield client
+
+    # Cleanup after test
+    client.flushdb()
+    client.close()
+
+
+# ===== PostgreSQL Fixtures =====
+
+@pytest.fixture
+def mock_db_connection():
+    """Mock PostgreSQL connection for unit tests"""
+    mock_conn = MagicMock(spec=psycopg2.extensions.connection)
+    mock_cursor = MagicMock()
+
+    # Mock query results
+    mock_cursor.fetchall.return_value = []
+    mock_cursor.fetchone.return_value = None
+    mock_cursor.execute.return_value = None
+
+    mock_conn.cursor.return_value = mock_cursor
+    mock_conn.commit.return_value = None
+    mock_conn.rollback.return_value = None
+
+    return mock_conn
+
+
+@pytest.fixture
+def real_db_connection():
+    """Real PostgreSQL connection for integration tests"""
+    conn = psycopg2.connect(
+        host='localhost',
+        port=5432,
+        dbname='mutt_test',
+        user='mutt_user',
+        password='test_password'
+    )
+
+    yield conn
+
+    # Cleanup
+    conn.rollback()
+    conn.close()
+
+
+# ===== Flask Test Client =====
+
+@pytest.fixture
+def flask_client(mock_redis, mock_db_connection):
+    """Flask test client with mocked dependencies"""
+    from services.web_ui_service import app
+
+    app.config['TESTING'] = True
+
+    # Inject mocked dependencies
+    with app.test_client() as client:
+        yield client
+
+
+# ===== Mock Config =====
+
+@pytest.fixture
+def mock_config():
+    """Mock configuration object"""
+    class MockConfig:
+        REDIS_HOST = 'localhost'
+        REDIS_PORT = 6379
+        POSTGRES_HOST = 'localhost'
+        POSTGRES_PORT = 5432
+        POSTGRES_DB = 'mutt_test'
+        POSTGRES_USER = 'mutt_user'
+        POSTGRES_PASSWORD = 'test_password'
+        MOOG_WEBHOOK_URL = 'http://moogsoft-test:8080/webhook'
+        MOOG_RATE_LIMIT_PER_SEC = 50
+        MOOG_HEALTH_CHECK_ENABLED = True
+        MOOG_HEALTH_TIMEOUT = 5
+        ALERTER_CACHE_TTL_SECONDS = 300
+        MAX_DLQ_RETRIES = 5
+        DLQ_BATCH_SIZE = 100
+        REMEDIATION_INTERVAL_SECONDS = 60
+
+    return MockConfig()
+
+
+# ===== Test Data Fixtures =====
+
+@pytest.fixture
+def sample_event():
+    """Sample event for testing"""
+    return {
+        'timestamp': '2025-01-12T10:30:00Z',
+        'hostname': 'router-01.example.com',
+        'message': 'Interface GigabitEthernet0/1 changed state to down',
+        'severity': 3,
+        'source': 'syslog',
+        'ingestion_timestamp': time.time(),
+        'correlation_id': 'test-correlation-id-123'
+    }
+
+
+@pytest.fixture
+def sample_rule():
+    """Sample alert rule for testing"""
+    return {
+        'id': 42,
+        'match_string': 'Interface.*changed state to down',
+        'trap_oid': None,
+        'syslog_severity': None,
+        'match_type': 'regex',
+        'priority': 200,
+        'prod_handling': 'alert',
+        'dev_handling': 'suppress',
+        'team_assignment': 'network-ops',
+        'is_active': True
+    }
+```
+
+#### 4.1.2 Unit Test Examples
+
+**Testing Ingestor Service:**
+
+```python
+"""
+Unit tests for Ingestor Service
+File: tests/test_ingestor_service.py
+"""
+import pytest
+import json
+from services import ingestor_service
+
+def test_ingest_endpoint_success(flask_client, mock_redis, sample_event):
+    """Test successful event ingestion"""
+    response = flask_client.post(
+        '/ingest',
+        data=json.dumps(sample_event),
+        content_type='application/json'
+    )
+
+    assert response.status_code == 202
+    assert response.json['status'] == 'accepted'
+    assert 'correlation_id' in response.json
+
+    # Verify Redis queue was updated
+    assert mock_redis.lpush.called
+
+
+def test_ingest_endpoint_missing_field(flask_client):
+    """Test ingestion with missing required field"""
+    incomplete_event = {
+        'timestamp': '2025-01-12T10:30:00Z',
+        'hostname': 'router-01.example.com'
+        # Missing 'message' field
+    }
+
+    response = flask_client.post(
+        '/ingest',
+        data=json.dumps(incomplete_event),
+        content_type='application/json'
+    )
+
+    assert response.status_code == 400
+    assert 'Missing required field' in response.json['error']
+
+
+def test_ingest_endpoint_invalid_json(flask_client):
+    """Test ingestion with invalid JSON"""
+    response = flask_client.post(
+        '/ingest',
+        data='invalid json{',
+        content_type='application/json'
+    )
+
+    assert response.status_code == 400
+
+
+def test_health_check_healthy(flask_client, mock_redis):
+    """Test health check when Redis is healthy"""
+    mock_redis.ping.return_value = True
+
+    response = flask_client.get('/health')
+
+    assert response.status_code == 200
+    assert response.json['status'] == 'healthy'
+
+
+def test_health_check_unhealthy(flask_client, mock_redis):
+    """Test health check when Redis is down"""
+    mock_redis.ping.side_effect = Exception('Connection refused')
+
+    response = flask_client.get('/health')
+
+    assert response.status_code == 503
+    assert response.json['status'] == 'unhealthy'
+```
+
+**Testing Alerter Service:**
+
+```python
+"""
+Unit tests for Alerter Service
+File: tests/test_alerter_service.py
+"""
+import pytest
+from services import alerter_service
+
+def test_find_matching_rule_regex_match(sample_event, sample_rule, mock_redis):
+    """Test rule matching with regex"""
+    # Setup mock cache
+    alerter_service.cache = {
+        'rules': [sample_rule],
+        'compiled_patterns': {}
+    }
+
+    matched_rule = alerter_service.find_matching_rule(sample_event)
+
+    assert matched_rule is not None
+    assert matched_rule['id'] == 42
+
+
+def test_find_matching_rule_no_match(sample_event, mock_redis):
+    """Test rule matching when no rule matches"""
+    # Setup cache with non-matching rule
+    alerter_service.cache = {
+        'rules': [{
+            'id': 1,
+            'match_string': 'DOES_NOT_MATCH',
+            'match_type': 'contains',
+            'priority': 100,
+            'is_active': True
+        }],
+        'compiled_patterns': {}
+    }
+
+    matched_rule = alerter_service.find_matching_rule(sample_event)
+
+    # Should return default rule
+    assert matched_rule['id'] == 0  # Default rule ID
+
+
+def test_is_development_host_cached(mock_redis):
+    """Test development host check with caching"""
+    # First call - cache miss
+    alerter_service.dev_host_cache = {}
+    mock_redis.sismember.return_value = True
+
+    result1 = alerter_service.is_development_host('test-host', mock_redis)
+    assert result1 is True
+    assert mock_redis.sismember.called
+
+    # Second call - cache hit
+    mock_redis.sismember.reset_mock()
+    result2 = alerter_service.is_development_host('test-host', mock_redis)
+    assert result2 is True
+    assert not mock_redis.sismember.called  # Should use cache
+
+
+def test_check_backpressure_normal(mock_redis, mock_config):
+    """Test backpressure check under normal conditions"""
+    mock_redis.llen.return_value = 500  # Below warning threshold
+
+    alerter_service.check_backpressure(mock_redis, mock_config)
+
+    # Should not shed any messages
+    assert not mock_redis.rpop.called
+
+
+def test_check_backpressure_shedding(mock_redis, mock_config):
+    """Test backpressure shedding when queue is critical"""
+    mock_redis.llen.return_value = 2500  # Above shed threshold
+    mock_redis.rpop.return_value = json.dumps({'test': 'message'})
+
+    alerter_service.check_backpressure(mock_redis, mock_config)
+
+    # Should shed messages to DLQ
+    assert mock_redis.rpop.called
+    assert mock_redis.lpush.called
+```
+
+**Testing Circuit Breaker:**
+
+```python
+"""
+Unit tests for Circuit Breaker
+File: tests/test_circuit_breaker.py
+"""
+import pytest
+from services.rate_limiter import CircuitBreaker, CircuitBreakerState
+
+def test_circuit_breaker_closed_to_open(mock_redis):
+    """Test circuit breaker opens after threshold failures"""
+    cb = CircuitBreaker(mock_redis, key_prefix='test:circuit')
+
+    # Record failures up to threshold
+    for i in range(5):
+        cb.record_failure()
+
+    # Circuit should now be open
+    assert cb.is_open() is True
+    assert mock_redis.get.return_value == b'OPEN'
+
+
+def test_circuit_breaker_half_open_to_closed(mock_redis):
+    """Test circuit breaker closes after successful recovery"""
+    cb = CircuitBreaker(mock_redis, key_prefix='test:circuit')
+
+    # Set to half-open
+    mock_redis.get.return_value = b'HALF_OPEN'
+
+    # Record success
+    cb.record_success()
+
+    # Should transition to closed
+    assert mock_redis.set.called
+    assert mock_redis.delete.called  # Failure counter reset
+
+
+def test_circuit_breaker_records_metrics(mock_redis, monkeypatch):
+    """Test circuit breaker updates Prometheus metrics"""
+    cb = CircuitBreaker(mock_redis, key_prefix='test:circuit')
+
+    mock_metric = MagicMock()
+    monkeypatch.setattr('services.rate_limiter.metrics', {
+        'circuit_breaker_state': mock_metric,
+        'circuit_breaker_transitions_total': MagicMock()
+    })
+
+    cb.record_failure()
+
+    # Should update metrics
+    assert mock_metric.set.called
+```
+
+### 4.2 Integration Testing
+
+**Target**: Test inter-service communication and data flow
+
+**Setup**: Use Docker Compose with real Redis and PostgreSQL
+
+#### 4.2.1 Integration Test Setup
+
+```python
+"""
+Integration test configuration
+File: tests/integration/conftest.py
+"""
+import pytest
+import redis
+import psycopg2
+import subprocess
+import time
+import requests
+
+@pytest.fixture(scope='session')
+def docker_services():
+    """Start Docker Compose stack for integration tests"""
+    # Start services
+    subprocess.run(['docker-compose', '-f', 'docker-compose.test.yml', 'up', '-d'], check=True)
+
+    # Wait for services to be ready
+    time.sleep(10)
+
+    # Health check
+    for _ in range(30):
+        try:
+            response = requests.get('http://localhost:8080/health')
+            if response.status_code == 200:
+                break
+        except:
+            pass
+        time.sleep(1)
+
+    yield
+
+    # Teardown
+    subprocess.run(['docker-compose', '-f', 'docker-compose.test.yml', 'down', '-v'], check=True)
+
+
+@pytest.fixture
+def integration_redis(docker_services):
+    """Redis client for integration tests"""
+    client = redis.Redis(host='localhost', port=6379, db=0)
+    client.flushdb()
+    yield client
+    client.flushdb()
+
+
+@pytest.fixture
+def integration_db(docker_services):
+    """PostgreSQL connection for integration tests"""
+    conn = psycopg2.connect(
+        host='localhost',
+        port=5432,
+        dbname='mutt',
+        user='mutt_user',
+        password='dev_password'
+    )
+    yield conn
+    conn.rollback()
+    conn.close()
+```
+
+#### 4.2.2 Integration Test Examples
+
+```python
+"""
+Integration tests for end-to-end event flow
+File: tests/integration/test_event_flow.py
+"""
+import pytest
+import requests
+import json
+import time
+
+@pytest.mark.integration
+def test_end_to_end_event_flow(integration_redis, integration_db):
+    """Test complete event flow from ingestion to database"""
+
+    # 1. Ingest an event
+    event = {
+        'timestamp': '2025-01-12T10:30:00Z',
+        'hostname': 'router-01.example.com',
+        'message': 'CRITICAL: Interface down',
+        'severity': 1,
+        'source': 'syslog'
+    }
+
+    response = requests.post(
+        'http://localhost:8080/ingest',
+        json=event
+    )
+
+    assert response.status_code == 202
+    correlation_id = response.json()['correlation_id']
+
+    # 2. Verify event in Redis ingest queue
+    queue_len = integration_redis.llen('mutt:ingest_queue')
+    assert queue_len > 0
+
+    # 3. Wait for Alerter to process
+    time.sleep(2)
+
+    # 4. Verify event was processed and stored in database
+    cursor = integration_db.cursor()
+    cursor.execute(
+        "SELECT * FROM event_audit_log WHERE raw_message->>'correlation_id' = %s",
+        (correlation_id,)
+    )
+    result = cursor.fetchone()
+
+    assert result is not None
+    assert result[2] == 'router-01.example.com'  # hostname column
+
+
+@pytest.mark.integration
+def test_rule_creation_and_cache_reload(integration_redis, integration_db):
+    """Test rule creation triggers cache reload in Alerter"""
+
+    # 1. Create a rule via API
+    rule = {
+        'match_string': 'TEST_PATTERN',
+        'match_type': 'contains',
+        'priority': 300,
+        'prod_handling': 'alert',
+        'dev_handling': 'suppress'
+    }
+
+    response = requests.post(
+        'http://localhost:8090/api/v2/rules',
+        json=rule,
+        headers={'X-API-Key': 'dev-key-12345'}
+    )
+
+    assert response.status_code == 201
+    rule_id = response.json()['id']
+
+    # 2. Verify cache reload message was published
+    # (In real test, would subscribe to Redis pubsub)
+
+    # 3. Verify rule is in database
+    cursor = integration_db.cursor()
+    cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (rule_id,))
+    result = cursor.fetchone()
+
+    assert result is not None
+    assert result[1] == 'TEST_PATTERN'  # match_string column
+
+
+@pytest.mark.integration
+def test_circuit_breaker_opens_on_moog_failure():
+    """Test circuit breaker opens when Moogsoft is unavailable"""
+
+    # 1. Stop Moogsoft container to simulate failure
+    # (Implementation depends on test infrastructure)
+
+    # 2. Send events that should trigger alerts
+    for i in range(10):
+        event = {
+            'timestamp': '2025-01-12T10:30:00Z',
+            'hostname': f'router-{i}.example.com',
+            'message': 'CRITICAL: Alert event',
+            'severity': 1,
+            'source': 'syslog'
+        }
+        requests.post('http://localhost:8080/ingest', json=event)
+
+    # 3. Wait for circuit breaker to trip
+    time.sleep(5)
+
+    # 4. Verify circuit breaker is open
+    redis_client = redis.Redis(host='localhost', port=6379)
+    circuit_state = redis_client.get('mutt:circuit:moog:state')
+
+    assert circuit_state == b'OPEN'
+```
+
+### 4.3 Load Testing
+
+**Target**: Validate system performance under load
+
+**Tools**: Locust for HTTP load testing, custom scripts for Redis throughput
+
+#### 4.3.1 Locust Load Test Configuration
+
+```python
+"""
+Locust load test for MUTT ingestion
+File: tests/load/locustfile.py
+
+Run with: locust -f tests/load/locustfile.py --host=http://localhost:8080
+"""
+from locust import HttpUser, task, between
+import json
+import random
+import time
+
+class MUTTUser(HttpUser):
+    """Simulates a syslog/SNMP source sending events"""
+
+    wait_time = between(0.1, 0.5)  # 2-10 requests per second per user
+
+    hostnames = [
+        'router-01.example.com',
+        'router-02.example.com',
+        'switch-01.example.com',
+        'switch-02.example.com',
+        'firewall-01.example.com'
+    ]
+
+    messages = [
+        'Interface GigabitEthernet0/1 changed state to down',
+        'CRITICAL: High CPU utilization detected',
+        'WARNING: Memory usage above 80%',
+        'Interface GigabitEthernet0/1 changed state to up',
+        'Link flap detected on interface',
+        'BGP peer 192.168.1.1 state changed to Established',
+        'OSPF neighbor 192.168.1.2 state changed to Full'
+    ]
+
+    @task(10)
+    def ingest_event(self):
+        """Send a syslog event"""
+        event = {
+            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'hostname': random.choice(self.hostnames),
+            'message': random.choice(self.messages),
+            'severity': random.randint(1, 7),
+            'source': 'syslog'
+        }
+
+        with self.client.post(
+            '/ingest',
+            json=event,
+            catch_response=True
+        ) as response:
+            if response.status_code == 202:
+                response.success()
+            else:
+                response.failure(f"Got status {response.status_code}")
+
+    @task(1)
+    def health_check(self):
+        """Periodically check health endpoint"""
+        self.client.get('/health')
+
+
+class MUTTAPIUser(HttpUser):
+    """Simulates operators using the Web UI API"""
+
+    wait_time = between(5, 15)  # Slower user interaction
+    host = "http://localhost:8090"
+
+    @task(5)
+    def list_rules(self):
+        """List alert rules"""
+        self.client.get(
+            '/api/v2/rules?limit=20',
+            headers={'X-API-Key': 'dev-key-12345'}
+        )
+
+    @task(2)
+    def get_metrics(self):
+        """Get real-time metrics"""
+        self.client.get('/api/v2/metrics')
+
+    @task(1)
+    def get_slo_status(self):
+        """Check SLO compliance"""
+        self.client.get('/api/v1/slo')
+
+    @task(1)
+    def create_rule(self):
+        """Create a new alert rule"""
+        rule = {
+            'match_string': f'TEST-{random.randint(1000, 9999)}',
+            'match_type': 'contains',
+            'priority': random.randint(100, 500),
+            'prod_handling': random.choice(['alert', 'suppress', 'log']),
+            'dev_handling': 'suppress'
+        }
+
+        self.client.post(
+            '/api/v2/rules',
+            json=rule,
+            headers={'X-API-Key': 'dev-key-12345'}
+        )
+```
+
+#### 4.3.2 Load Test Execution
+
+```bash
+# ===== Basic Load Test =====
+# 10 users, ramp up over 10 seconds
+locust -f tests/load/locustfile.py \
+    --host=http://localhost:8080 \
+    --users 10 \
+    --spawn-rate 1 \
+    --run-time 5m \
+    --headless
+
+# ===== High Load Test =====
+# 100 users simulating 500-1000 EPS
+locust -f tests/load/locustfile.py \
+    --host=http://localhost:8080 \
+    --users 100 \
+    --spawn-rate 10 \
+    --run-time 15m \
+    --headless \
+    --html results/load_test_report.html
+
+# ===== Stress Test =====
+# Gradually increase load to find breaking point
+locust -f tests/load/locustfile.py \
+    --host=http://localhost:8080 \
+    --users 500 \
+    --spawn-rate 50 \
+    --run-time 30m \
+    --headless
+```
+
+#### 4.3.3 Performance Targets
+
+```
+Service: Ingestor
+- Throughput: 1000 EPS minimum (5000 EPS target)
+- Latency p95: < 50ms
+- Latency p99: < 100ms
+- Success rate: > 99.9%
+
+Service: Alerter
+- Processing latency p95: < 100ms
+- Queue depth: < 1000 under normal load
+- Rule cache hit rate: > 99%
+
+Service: Moog Forwarder
+- Forward latency p95: < 200ms (network dependent)
+- Rate limit compliance: 100% (no bursts exceeding limit)
+- Circuit breaker: < 0.1% of time in OPEN state
+
+Database (PostgreSQL)
+- Write throughput: 500 writes/sec minimum
+- Query latency p95: < 50ms
+- Connection pool utilization: < 80%
+
+Redis
+- Operations/sec: 10,000+
+- Latency p95: < 5ms
+- Memory usage: < 2GB for 1M events in queues
+```
+
+### 4.4 Test Execution
+
+#### 4.4.1 Running Tests
+
+```bash
+# ===== Unit Tests =====
+# Run all unit tests with coverage
+pytest tests/ \
+    --cov=services \
+    --cov-report=html \
+    --cov-report=term \
+    --cov-fail-under=90
+
+# Run specific test file
+pytest tests/test_alerter_service.py -v
+
+# Run tests matching pattern
+pytest tests/ -k "test_circuit_breaker" -v
+
+# ===== Integration Tests =====
+# Run integration tests (requires Docker Compose)
+pytest tests/integration/ \
+    -m integration \
+    --tb=short \
+    -v
+
+# ===== Load Tests =====
+# Run Locust web UI (interactive)
+locust -f tests/load/locustfile.py --host=http://localhost:8080
+
+# Then open: http://localhost:8089
+
+# ===== Coverage Report =====
+# Generate and view coverage report
+pytest --cov=services --cov-report=html
+open htmlcov/index.html  # macOS
+xdg-open htmlcov/index.html  # Linux
+```
+
+#### 4.4.2 CI/CD Pipeline Integration
+
+```yaml
+# Example GitLab CI/CD pipeline
+# File: .gitlab-ci.yml (excerpt)
+
+test:unit:
+  stage: test
+  image: python:3.10
+  services:
+    - redis:7
+    - postgres:14
+  variables:
+    REDIS_HOST: redis
+    POSTGRES_HOST: postgres
+    POSTGRES_PASSWORD: test_password
+  script:
+    - pip install -r requirements.txt
+    - pip install pytest pytest-cov pytest-mock
+    - pytest tests/ --cov=services --cov-fail-under=90
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+
+test:integration:
+  stage: test
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache docker-compose python3 py3-pip
+    - pip3 install pytest requests redis psycopg2-binary
+  script:
+    - docker-compose -f docker-compose.test.yml up -d
+    - sleep 30  # Wait for services
+    - pytest tests/integration/ -m integration
+  after_script:
+    - docker-compose -f docker-compose.test.yml down -v
+
+test:load:
+  stage: test
+  image: python:3.10
+  only:
+    - main
+    - tags
+  script:
+    - pip install locust
+    - locust -f tests/load/locustfile.py \
+        --host=http://staging.example.com \
+        --users 50 \
+        --spawn-rate 5 \
+        --run-time 5m \
+        --headless \
+        --html results/load_test.html
+  artifacts:
+    paths:
+      - results/load_test.html
+    expire_in: 30 days
+```
+
+### 4.5 Test Data Management
+
+#### 4.5.1 Test Database Setup
+
+```sql
+-- Create test database
+CREATE DATABASE mutt_test;
+
+-- Create test user
+CREATE USER mutt_test_user WITH PASSWORD 'test_password';
+GRANT ALL PRIVILEGES ON DATABASE mutt_test TO mutt_test_user;
+
+-- Initialize schema (run all schema files)
+\c mutt_test
+\i database/mutt_schema_v2.1.sql
+\i database/config_audit_schema.sql
+\i database/partitioned_event_audit_log.sql
+
+-- Insert test data
+INSERT INTO alert_rules (match_string, match_type, priority, prod_handling, dev_handling)
+VALUES
+    ('CRITICAL', 'contains', 500, 'alert', 'alert'),
+    ('WARNING', 'contains', 300, 'log', 'suppress'),
+    ('Interface.*down', 'regex', 400, 'alert', 'suppress');
+
+INSERT INTO development_hosts (hostname)
+VALUES
+    ('dev-router-01.example.com'),
+    ('dev-switch-01.example.com');
+```
+
+#### 4.5.2 Test Data Cleanup
+
+```python
+"""
+Test cleanup utilities
+File: tests/utils/cleanup.py
+"""
+import redis
+import psycopg2
+
+def cleanup_redis(redis_host='localhost', redis_port=6379, redis_db=15):
+    """Clear all Redis test data"""
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.flushdb()
+    client.close()
+
+def cleanup_postgres(db_name='mutt_test'):
+    """Truncate all PostgreSQL test tables"""
+    conn = psycopg2.connect(
+        host='localhost',
+        dbname=db_name,
+        user='mutt_test_user',
+        password='test_password'
+    )
+
+    cursor = conn.cursor()
+
+    # Truncate tables (preserve schema)
+    tables = ['event_audit_log', 'config_audit_log', 'alert_rules',
+              'development_hosts', 'device_teams']
+
+    for table in tables:
+        cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+```
 
 ---
 
