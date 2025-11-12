@@ -380,6 +380,7 @@ def query_audit_logs(
         ...     limit=25
         ... )
     """
+    cursor = None  # Initialize cursor to None for safe cleanup in finally block
     try:
         # Validate and sanitize inputs
         page = max(1, page)
@@ -473,7 +474,8 @@ def query_audit_logs(
         raise AuditLogError(f"Failed to query audit logs: {e}") from e
 
     finally:
-        cursor.close()
+        if cursor is not None:
+            cursor.close()
 
 
 if __name__ == "__main__":

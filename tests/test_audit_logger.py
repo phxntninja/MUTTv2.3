@@ -572,10 +572,10 @@ class TestQueryAuditLogs:
         assert result['pagination']['limit'] == 200
 
     def test_query_invalid_operation_raises_error(self):
-        """Test that invalid operation raises ValueError"""
+        """Test that invalid operation raises AuditLogError"""
         mock_conn = Mock()
 
-        with pytest.raises(ValueError, match="operation must be one of"):
+        with pytest.raises(AuditLogError, match="operation must be one of"):
             query_audit_logs(mock_conn, operation='INVALID')
 
     def test_query_database_error(self):

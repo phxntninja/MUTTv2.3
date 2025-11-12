@@ -18,6 +18,23 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
 
 
+def create_mock_db_pool():
+    """Helper to create a properly configured mock database pool with context manager support"""
+    mock_db_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+
+    # Set up context manager protocol for cursor
+    mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = Mock(return_value=False)
+    mock_conn.commit.return_value = None
+
+    mock_db_pool.getconn.return_value = mock_conn
+    mock_db_pool.putconn.return_value = None
+
+    return mock_db_pool, mock_conn, mock_cursor
+
+
 @pytest.fixture(scope="class")
 def app():
     from services.web_ui_service import create_app
@@ -33,16 +50,12 @@ def app():
 class TestAuditTrailIntegration:
     """Integration tests for audit trail completeness"""
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_create_rule_generates_audit_log(self, mock_log_config, app):
         """Test that creating a rule generates an audit log entry"""
-        # Mock DB pool
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = (123,)  # new rule ID
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         # Mock secrets for API key
@@ -80,15 +93,11 @@ class TestAuditTrailIntegration:
         assert call_args[1]['new_values']['priority'] == 100
         assert call_args[1]['reason'] == 'Test rule creation'
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_update_rule_generates_audit_log(self, mock_log_config, app):
         """Test that updating a rule generates an audit log entry"""
-        # Mock DB pool
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-
-        # Mock cursor factory for RealDictCursor
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = {
             'id': 42,
             'match_string': 'ERROR',
@@ -102,9 +111,6 @@ class TestAuditTrailIntegration:
             'is_active': True
         }
         mock_cursor.rowcount = 1
-
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'test-key'}
@@ -136,15 +142,11 @@ class TestAuditTrailIntegration:
         assert call_args[1]['new_values']['priority'] == 200
         assert call_args[1]['reason'] == 'Increased priority for critical alerts'
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_delete_rule_generates_audit_log(self, mock_log_config, app):
         """Test that deleting a rule generates an audit log entry"""
-        # Mock DB pool
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-
-        # Mock cursor for SELECT then DELETE
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = {
             'id': 99,
             'match_string': 'DEPRECATED',
@@ -158,9 +160,6 @@ class TestAuditTrailIntegration:
             'is_active': False
         }
         mock_cursor.rowcount = 1
-
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'test-key'}
@@ -189,19 +188,15 @@ class TestAuditTrailIntegration:
         assert call_args[1]['old_values']['priority'] == 50
         assert call_args[1]['reason'] == 'Removing deprecated rule'
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_audit_log_failure_does_not_block_operation(self, mock_log_config, app):
         """Test that audit log failures don't block CRUD operations"""
         # Make audit logging raise an exception
         mock_log_config.side_effect = Exception("Audit logging failed")
 
-        # Mock DB pool
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = (456,)
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'test-key'}
@@ -226,7 +221,7 @@ class TestAuditTrailIntegration:
         data = json.loads(response.data)
         assert data['id'] == 456
 
-    @patch('audit_logger.query_audit_logs')
+    @patch('services.web_ui_service.query_audit_logs')
     def test_audit_api_endpoint_filtering(self, mock_query_audit, app):
         """Test that the /api/v1/audit endpoint properly passes filters"""
         # Mock query_audit_logs return value
@@ -253,10 +248,8 @@ class TestAuditTrailIntegration:
             }
         }
 
-        # Mock DB pool
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-        mock_db_pool.getconn.return_value = mock_conn
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'test-key'}
@@ -288,15 +281,12 @@ class TestAuditTrailIntegration:
 class TestAuditTrailCompleteness:
     """Tests to verify audit trail captures all necessary information"""
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_audit_captures_correlation_id(self, mock_log_config, app):
         """Test that audit logs capture correlation IDs from requests"""
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = (789,)
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'test-key'}
@@ -325,15 +315,12 @@ class TestAuditTrailCompleteness:
         call_args = mock_log_config.call_args
         assert call_args[1]['correlation_id'] == 'test-correlation-123'
 
-    @patch('audit_logger.log_config_change')
+    @patch('services.web_ui_service.log_config_change')
     def test_audit_captures_api_key_info(self, mock_log_config, app):
         """Test that audit logs capture truncated API key for identification"""
-        mock_db_pool = Mock()
-        mock_conn = Mock()
-        mock_cursor = Mock()
+        # Mock DB pool with proper context manager support
+        mock_db_pool, mock_conn, mock_cursor = create_mock_db_pool()
         mock_cursor.fetchone.return_value = (555,)
-        mock_conn.cursor.return_value = mock_cursor
-        mock_db_pool.getconn.return_value = mock_conn
         app.config['DB_POOL'] = mock_db_pool
 
         app.config['SECRETS'] = {'WEBUI_API_KEY': 'my-secret-api-key-12345'}
