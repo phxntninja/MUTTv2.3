@@ -314,8 +314,8 @@ if True:
 
                   # Renew if below threshold and renewable
                   if renewable and ttl < config['VAULT_TOKEN_RENEW_THRESHOLD']:
-                      logger.info(f"Vault token TTL ({ttl}s) below threshold
-  ({config['VAULT_TOKEN_RENEW_THRESHOLD']}s). Renewing...")
+                      logger.info(f"Vault token TTL ({ttl}s) below threshold "
+                                  f"({config['VAULT_TOKEN_RENEW_THRESHOLD']}s). Renewing...")
 
                       renew_response = vault_client.auth.token.renew_self()
                       new_ttl = renew_response['auth']['lease_duration']

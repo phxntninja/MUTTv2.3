@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
 # Import SLO definitions
-from slo_definitions import SLO_TARGETS, GLOBAL_SLO_SETTINGS
+from services.slo_definitions import SLO_TARGETS, GLOBAL_SLO_SETTINGS
 
 # Optional DynamicConfig
 try:
