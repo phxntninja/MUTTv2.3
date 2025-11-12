@@ -6096,11 +6096,19 @@ spec:
           restartPolicy: OnFailure
 ```
 
-### 5.2 RHEL/SystemD Deployment
+### 5.2 RHEL/Ubuntu SystemD Deployment
 
-**Target Environment**: RHEL 8/9, CentOS Stream, Rocky Linux
+**Supported Platforms**:
+- **RHEL-based**: RHEL 8/9, CentOS Stream, Rocky Linux (Section 5.2.1-5.2.2)
+- **Ubuntu**: Ubuntu 20.04 LTS, 22.04 LTS, 24.04 LTS (Section 5.2.3)
+
+Both platforms use SystemD for service management with identical service files. The main differences are package managers (`yum` vs `apt`) and security frameworks (SELinux vs AppArmor).
 
 #### 5.2.1 SystemD Service Files
+
+**Note**: These service files work identically on both RHEL and Ubuntu.
+
+
 
 **Ingestor Service:**
 
@@ -6405,6 +6413,239 @@ echo "=== Deployment Complete ==="
 echo "Logs: journalctl -u mutt-* -f"
 echo "Config: $MUTT_HOME/.env"
 ```
+
+#### 5.2.3 Ubuntu Deployment
+
+**Target Environment**: Ubuntu 20.04 LTS, 22.04 LTS, 24.04 LTS
+
+**Key Differences from RHEL**:
+- Package manager: `apt` instead of `yum`
+- Python 3.10 may require PPA on older Ubuntu versions
+- Security: AppArmor instead of SELinux
+- Firewall: `ufw` instead of `firewalld`
+- SystemD service files work identically on Ubuntu
+
+**Prerequisites:**
+
+```bash
+# Update package list
+sudo apt update
+
+# Install Python 3.10 (Ubuntu 22.04+ has it by default)
+# For Ubuntu 20.04, add deadsnakes PPA:
+sudo apt install -y software-properties-common
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt update
+
+# Install Python 3.10 and dependencies
+sudo apt install -y \
+    python3.10 \
+    python3.10-venv \
+    python3.10-dev \
+    python3-pip \
+    build-essential \
+    git \
+    postgresql-client \
+    redis-tools \
+    curl \
+    net-tools
+
+# Verify Python version
+python3.10 --version
+```
+
+**Ubuntu Deployment Script:**
+
+```bash
+#!/bin/bash
+# File: scripts/deploy_ubuntu.sh
+# MUTT v2.5 Ubuntu Deployment Script
+
+set -e
+
+MUTT_USER="mutt"
+MUTT_GROUP="mutt"
+MUTT_HOME="/opt/mutt"
+PYTHON_VERSION="3.10"
+
+echo "=== MUTT v2.5 Ubuntu Deployment ==="
+
+# 1. Check Python 3.10 availability
+if ! command -v python${PYTHON_VERSION} &> /dev/null; then
+    echo "ERROR: Python ${PYTHON_VERSION} not found!"
+    echo "Install it using:"
+    echo "  sudo add-apt-repository ppa:deadsnakes/ppa"
+    echo "  sudo apt update"
+    echo "  sudo apt install python${PYTHON_VERSION} python${PYTHON_VERSION}-venv"
+    exit 1
+fi
+
+# 2. Create user and group
+if ! id "$MUTT_USER" &>/dev/null; then
+    echo "Creating mutt user..."
+    # Ubuntu useradd syntax (same as RHEL for these flags)
+    sudo useradd --system --home-dir "$MUTT_HOME" --shell /bin/bash --create-home "$MUTT_USER"
+fi
+
+# 3. Create directories
+echo "Creating directories..."
+sudo mkdir -p "$MUTT_HOME"/{services,scripts,database,logs,venv}
+sudo chown -R "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME"
+
+# 4. Install Python dependencies
+echo "Setting up Python virtual environment..."
+sudo -u "$MUTT_USER" python${PYTHON_VERSION} -m venv "$MUTT_HOME/venv"
+sudo -u "$MUTT_USER" "$MUTT_HOME/venv/bin/pip" install --upgrade pip
+sudo -u "$MUTT_USER" "$MUTT_HOME/venv/bin/pip" install -r requirements.txt
+
+# 5. Copy application files
+echo "Copying application files..."
+sudo cp -r services/* "$MUTT_HOME/services/"
+sudo cp -r scripts/* "$MUTT_HOME/scripts/"
+sudo cp -r database/* "$MUTT_HOME/database/"
+sudo chown -R "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME"
+
+# 6. Copy environment file
+if [ ! -f "$MUTT_HOME/.env" ]; then
+    echo "Creating .env file..."
+    sudo cp .env.template "$MUTT_HOME/.env"
+    sudo chown "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME/.env"
+    sudo chmod 600 "$MUTT_HOME/.env"
+    echo "WARNING: Edit $MUTT_HOME/.env with production values!"
+fi
+
+# 7. Install systemd service files
+echo "Installing systemd services..."
+sudo cp systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 8. Configure firewall (ufw)
+echo "Configuring firewall..."
+if command -v ufw &> /dev/null; then
+    # Allow Web UI port
+    sudo ufw allow 8090/tcp comment "MUTT Web UI"
+
+    # Allow metrics ports (if exposing externally)
+    # sudo ufw allow 9090:9094/tcp comment "MUTT Metrics"
+
+    echo "Firewall rules added. Enable ufw with: sudo ufw enable"
+else
+    echo "WARNING: ufw not installed. Install with: sudo apt install ufw"
+fi
+
+# 9. Enable and start services
+echo "Enabling services..."
+sudo systemctl enable mutt-ingestor.service
+sudo systemctl enable mutt-alerter@{1..5}.service
+sudo systemctl enable mutt-moog-forwarder.service
+sudo systemctl enable mutt-webui.service
+sudo systemctl enable mutt-remediation.service
+
+echo "Starting services..."
+sudo systemctl start mutt-ingestor.service
+sudo systemctl start mutt-alerter@{1..5}.service
+sudo systemctl start mutt-moog-forwarder.service
+sudo systemctl start mutt-webui.service
+sudo systemctl start mutt-remediation.service
+
+# 10. Check status
+echo ""
+echo "=== Service Status ==="
+sudo systemctl status mutt-ingestor.service --no-pager
+sudo systemctl status mutt-alerter@1.service --no-pager
+sudo systemctl status mutt-webui.service --no-pager
+
+echo ""
+echo "=== Deployment Complete ==="
+echo "Logs: journalctl -u mutt-* -f"
+echo "Config: $MUTT_HOME/.env"
+echo "Web UI: http://localhost:8090"
+echo ""
+echo "Next steps:"
+echo "  1. Edit $MUTT_HOME/.env with production values"
+echo "  2. Restart services: sudo systemctl restart mutt-*"
+echo "  3. Check logs: sudo journalctl -u mutt-* -f"
+```
+
+**Ubuntu-Specific Notes:**
+
+1. **AppArmor vs SELinux**:
+   - Ubuntu uses AppArmor for security (RHEL uses SELinux)
+   - SystemD security directives work identically
+   - No AppArmor profile needed for basic deployment
+   - For strict AppArmor, create profile at `/etc/apparmor.d/mutt`
+
+2. **Package Names**:
+   ```bash
+   # Ubuntu package equivalents:
+   yum install python3 → apt install python3.10
+   yum install python3-pip → apt install python3-pip
+   yum install postgresql → apt install postgresql-client
+   yum install redis → apt install redis-tools
+   ```
+
+3. **Firewall (ufw)**:
+   ```bash
+   # Enable firewall
+   sudo ufw enable
+
+   # Check status
+   sudo ufw status verbose
+
+   # Allow additional ports if needed
+   sudo ufw allow 9090/tcp  # Prometheus metrics
+   sudo ufw allow 514/udp   # Syslog input (if receiving directly)
+   ```
+
+4. **Service Management** (identical to RHEL):
+   ```bash
+   # Check service status
+   sudo systemctl status mutt-*
+
+   # View logs
+   sudo journalctl -u mutt-ingestor -f
+   sudo journalctl -u mutt-alerter@1 -f
+
+   # Restart services
+   sudo systemctl restart mutt-ingestor
+
+   # Stop all MUTT services
+   sudo systemctl stop mutt-*
+   ```
+
+5. **Python 3.10 Installation Matrix**:
+   | Ubuntu Version | Python 3.10 | Installation Method |
+   |---------------|-------------|---------------------|
+   | 20.04 LTS | ❌ Not default | Requires deadsnakes PPA |
+   | 22.04 LTS | ✅ Default | `apt install python3.10` |
+   | 24.04 LTS | ✅ Default (3.12) | Use `python3.10` specifically |
+
+6. **Troubleshooting**:
+
+   **Issue**: Python 3.10 not found
+   ```bash
+   # Solution: Install from PPA
+   sudo add-apt-repository ppa:deadsnakes/ppa
+   sudo apt update
+   sudo apt install python3.10 python3.10-venv python3.10-dev
+   ```
+
+   **Issue**: Permission denied on /opt/mutt
+   ```bash
+   # Solution: Fix ownership
+   sudo chown -R mutt:mutt /opt/mutt
+   sudo chmod -R 755 /opt/mutt
+   sudo chmod 700 /opt/mutt/.env
+   ```
+
+   **Issue**: Services fail to start
+   ```bash
+   # Solution: Check logs and dependencies
+   sudo journalctl -u mutt-ingestor -n 50
+   # Verify Redis and PostgreSQL are accessible
+   redis-cli ping
+   psql -h <postgres_host> -U <user> -d mutt -c "SELECT 1"
+   ```
 
 ### 5.3 Production Readiness Checklist
 
