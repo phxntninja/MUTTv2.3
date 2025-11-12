@@ -12,7 +12,7 @@ pytest-xdist==3.5.0        # Parallel test execution
 
 # Testing utilities
 coverage==7.4.0            # Coverage measurement
-mock==5.1.0                # Additional mocking support
+mock==5.2.0                # Additional mocking support
 
 # Code quality (optional)
 pytest-flake8==1.1.1       # Linting during tests
