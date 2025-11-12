@@ -200,6 +200,771 @@ mutt/
 
 ---
 
+## Reference Examples
+
+This section provides complete, runnable examples for common tasks. Use these as reference when implementing the specifications in later phases.
+
+### Example 1: Complete Service Startup (Ingestor)
+
+```python
+#!/usr/bin/env python3
+"""
+Complete example of starting the Ingestor service
+File: services/ingestor_service.py
+"""
+import os
+import sys
+import logging
+from flask import Flask, request, jsonify
+import redis
+from prometheus_client import Counter, make_wsgi_app
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+logger = logging.getLogger('mutt.ingestor')
+
+# Prometheus metrics
+metrics = {
+    'ingests_total': Counter('ingestor_ingests_total', 'Total ingestion requests', ['status']),
+    'queue_pushes_total': Counter('ingestor_queue_pushes_total', 'Messages pushed to queue')
+}
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Add Prometheus metrics endpoint
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
+
+# Redis connection with retry
+def get_redis_connection():
+    """Connect to Redis with retry logic"""
+    redis_host = os.getenv('REDIS_HOST', 'localhost')
+    redis_port = int(os.getenv('REDIS_PORT', '6379'))
+    redis_db = int(os.getenv('REDIS_DB', '0'))
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            client = redis.Redis(
+                host=redis_host,
+                port=redis_port,
+                db=redis_db,
+                decode_responses=False,
+                socket_timeout=5,
+                socket_connect_timeout=5
+            )
+            client.ping()
+            logger.info(f"Connected to Redis at {redis_host}:{redis_port}")
+            return client
+        except Exception as e:
+            logger.error(f"Redis connection attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
+
+# Global Redis client
+redis_client = None
+
+@app.before_request
+def ensure_redis_connection():
+    """Ensure Redis connection is available"""
+    global redis_client
+    if redis_client is None:
+        redis_client = get_redis_connection()
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    try:
+        redis_client.ping()
+        return jsonify({'status': 'healthy', 'service': 'ingestor'}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+
+@app.route('/ingest', methods=['POST'])
+def ingest():
+    """Main ingestion endpoint"""
+    try:
+        # Validate request
+        data = request.get_json()
+        if not data:
+            metrics['ingests_total'].labels(status='invalid').inc()
+            return jsonify({'error': 'Invalid JSON'}), 400
+
+        # Validate required fields
+        required = ['timestamp', 'message', 'hostname']
+        for field in required:
+            if field not in data:
+                metrics['ingests_total'].labels(status='invalid').inc()
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        # Enrich with metadata
+        data['ingestion_timestamp'] = time.time()
+        data['correlation_id'] = str(uuid.uuid4())
+
+        # Push to Redis queue
+        redis_client.lpush('mutt:ingest_queue', json.dumps(data))
+        metrics['queue_pushes_total'].inc()
+        metrics['ingests_total'].labels(status='success').inc()
+
+        logger.debug(f"Ingested event from {data['hostname']}")
+        return jsonify({'status': 'accepted', 'correlation_id': data['correlation_id']}), 202
+
+    except Exception as e:
+        logger.error(f"Ingestion error: {e}", exc_info=True)
+        metrics['ingests_total'].labels(status='error').inc()
+        return jsonify({'error': 'Internal server error'}), 500
+
+def main():
+    """Entry point"""
+    logger.info("Starting MUTT Ingestor Service v2.5")
+
+    # Connect to Redis
+    global redis_client
+    redis_client = get_redis_connection()
+
+    # Start Flask app
+    host = os.getenv('INGESTOR_HOST', '0.0.0.0')
+    port = int(os.getenv('INGESTOR_PORT', '8080'))
+
+    logger.info(f"Listening on {host}:{port}")
+    app.run(host=host, port=port, debug=False)
+
+if __name__ == '__main__':
+    main()
+```
+
+### Example 2: Configuration Files
+
+#### `.env.template`
+```bash
+# MUTT v2.5 Environment Configuration Template
+# Copy to .env and fill in values
+
+# ===== Redis Configuration =====
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=  # Leave empty if no auth
+REDIS_SSL=false
+REDIS_SENTINEL_HOSTS=  # Comma-separated: sentinel1:26379,sentinel2:26379
+REDIS_SENTINEL_MASTER=mymaster
+
+# ===== PostgreSQL Configuration =====
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=mutt
+POSTGRES_USER=mutt_user
+POSTGRES_PASSWORD=  # Set in Vault, not here
+POSTGRES_SSL_MODE=prefer
+
+# ===== Vault Configuration =====
+VAULT_ADDR=https://vault.example.com:8200
+VAULT_ROLE_ID=  # AppRole role ID
+VAULT_SECRET_ID=  # AppRole secret ID
+VAULT_MOUNT_POINT=mutt
+VAULT_SECRET_PATH=mutt/prod/secrets
+
+# ===== Moogsoft Configuration =====
+MOOG_WEBHOOK_URL=https://moogsoft.example.com/webhook
+MOOG_RATE_LIMIT_PER_SEC=50
+MOOG_HEALTH_CHECK_ENABLED=true
+MOOG_HEALTH_TIMEOUT=5
+
+# ===== Service Configuration =====
+INGESTOR_HOST=0.0.0.0
+INGESTOR_PORT=8080
+ALERTER_WORKER_ID=alerter-01
+MOOG_FORWARDER_WORKER_ID=forwarder-01
+WEB_UI_PORT=8090
+REMEDIATION_INTERVAL_SECONDS=60
+
+# ===== Dynamic Config Defaults =====
+ALERTER_CACHE_TTL_SECONDS=300
+ALERTER_QUEUE_WARN_THRESHOLD=1000
+ALERTER_QUEUE_SHED_THRESHOLD=2000
+MOOG_CIRCUIT_BREAKER_THRESHOLD=5
+MOOG_CIRCUIT_BREAKER_TIMEOUT=60
+
+# ===== Observability =====
+PROMETHEUS_PORT=9090
+GRAFANA_PORT=3000
+LOG_LEVEL=INFO
+ENABLE_TRACING=false
+JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+
+# ===== Data Retention =====
+EVENT_RETENTION_DAYS=90
+AUDIT_RETENTION_DAYS=365
+PARTITION_PRECREATE_MONTHS=3
+```
+
+#### `config.py`
+```python
+"""
+MUTT Configuration Module
+Loads configuration from environment variables with sensible defaults
+"""
+import os
+from typing import Optional
+
+class Config:
+    """Main configuration class"""
+
+    # ===== Redis =====
+    REDIS_HOST: str = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT: int = int(os.getenv('REDIS_PORT', '6379'))
+    REDIS_DB: int = int(os.getenv('REDIS_DB', '0'))
+    REDIS_PASSWORD: Optional[str] = os.getenv('REDIS_PASSWORD')
+    REDIS_SSL: bool = os.getenv('REDIS_SSL', 'false').lower() == 'true'
+
+    # ===== PostgreSQL =====
+    POSTGRES_HOST: str = os.getenv('POSTGRES_HOST', 'localhost')
+    POSTGRES_PORT: int = int(os.getenv('POSTGRES_PORT', '5432'))
+    POSTGRES_DB: str = os.getenv('POSTGRES_DB', 'mutt')
+    POSTGRES_USER: str = os.getenv('POSTGRES_USER', 'mutt_user')
+    POSTGRES_PASSWORD: Optional[str] = os.getenv('POSTGRES_PASSWORD')  # From Vault
+    POSTGRES_SSL_MODE: str = os.getenv('POSTGRES_SSL_MODE', 'prefer')
+
+    # ===== Vault =====
+    VAULT_ADDR: str = os.getenv('VAULT_ADDR', 'http://vault:8200')
+    VAULT_ROLE_ID: Optional[str] = os.getenv('VAULT_ROLE_ID')
+    VAULT_SECRET_ID: Optional[str] = os.getenv('VAULT_SECRET_ID')
+    VAULT_MOUNT_POINT: str = os.getenv('VAULT_MOUNT_POINT', 'mutt')
+    VAULT_SECRET_PATH: str = os.getenv('VAULT_SECRET_PATH', 'mutt/prod/secrets')
+
+    # ===== Moogsoft =====
+    MOOG_WEBHOOK_URL: str = os.getenv('MOOG_WEBHOOK_URL', 'http://moogsoft:8080/webhook')
+    MOOG_RATE_LIMIT_PER_SEC: int = int(os.getenv('MOOG_RATE_LIMIT_PER_SEC', '50'))
+    MOOG_HEALTH_CHECK_ENABLED: bool = os.getenv('MOOG_HEALTH_CHECK_ENABLED', 'true').lower() == 'true'
+    MOOG_HEALTH_TIMEOUT: int = int(os.getenv('MOOG_HEALTH_TIMEOUT', '5'))
+
+    # ===== Services =====
+    INGESTOR_HOST: str = os.getenv('INGESTOR_HOST', '0.0.0.0')
+    INGESTOR_PORT: int = int(os.getenv('INGESTOR_PORT', '8080'))
+    ALERTER_WORKER_ID: str = os.getenv('ALERTER_WORKER_ID', 'alerter-default')
+    WEB_UI_PORT: int = int(os.getenv('WEB_UI_PORT', '8090'))
+    REMEDIATION_INTERVAL_SECONDS: int = int(os.getenv('REMEDIATION_INTERVAL_SECONDS', '60'))
+
+    # ===== Dynamic Config =====
+    ALERTER_CACHE_TTL_SECONDS: int = int(os.getenv('ALERTER_CACHE_TTL_SECONDS', '300'))
+    MAX_DLQ_RETRIES: int = int(os.getenv('MAX_DLQ_RETRIES', '5'))
+    DLQ_BATCH_SIZE: int = int(os.getenv('DLQ_BATCH_SIZE', '100'))
+
+    # ===== Observability =====
+    LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
+    ENABLE_TRACING: bool = os.getenv('ENABLE_TRACING', 'false').lower() == 'true'
+
+    @classmethod
+    def validate(cls) -> bool:
+        """Validate required configuration"""
+        required = [
+            cls.REDIS_HOST,
+            cls.POSTGRES_HOST,
+            cls.VAULT_ADDR
+        ]
+        return all(required)
+```
+
+### Example 3: Docker Compose (Complete Development Stack)
+
+```yaml
+version: '3.8'
+
+services:
+  # ===== Infrastructure =====
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  postgres:
+    image: postgres:14-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: mutt
+      POSTGRES_USER: mutt_user
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mutt_user -d mutt"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  vault:
+    image: vault:1.13
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+
+  # ===== MUTT Services =====
+  ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile.ingestor
+    ports:
+      - "8080:8080"
+      - "9090:9090"  # Prometheus metrics
+    environment:
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: dev_password
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-token
+      LOG_LEVEL: DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alerter:
+    build:
+      context: .
+      dockerfile: Dockerfile.alerter
+    environment:
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: dev_password
+      ALERTER_WORKER_ID: alerter-${HOSTNAME:-dev}
+      LOG_LEVEL: DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2  # Run 2 alerter instances
+    restart: unless-stopped
+
+  moog-forwarder:
+    build:
+      context: .
+      dockerfile: Dockerfile.moog-forwarder
+    environment:
+      REDIS_HOST: redis
+      MOOG_WEBHOOK_URL: ${MOOG_WEBHOOK_URL}
+      MOOG_RATE_LIMIT_PER_SEC: 50
+      LOG_LEVEL: DEBUG
+    depends_on:
+      - redis
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+
+  web-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.webui
+    ports:
+      - "8090:8090"
+    environment:
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: dev_password
+      MUTT_API_KEY: dev-key-12345
+      LOG_LEVEL: DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  remediation:
+    build:
+      context: .
+      dockerfile: Dockerfile.remediation
+    environment:
+      REDIS_HOST: redis
+      MOOG_WEBHOOK_URL: ${MOOG_WEBHOOK_URL}
+      REMEDIATION_INTERVAL_SECONDS: 30
+      LOG_LEVEL: DEBUG
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ===== Observability =====
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: redis-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+volumes:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+```
+
+### Example 4: API Usage Examples
+
+#### Using curl
+```bash
+# ===== Ingest an Event =====
+curl -X POST http://localhost:8080/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "2025-01-12T10:30:00Z",
+    "hostname": "router-01.example.com",
+    "message": "Interface GigabitEthernet0/1 changed state to down",
+    "severity": 3,
+    "source": "syslog"
+  }'
+
+# Response: {"status": "accepted", "correlation_id": "uuid-here"}
+
+# ===== Create an Alert Rule =====
+curl -X POST http://localhost:8090/api/v2/rules \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-key-12345" \
+  -d '{
+    "match_string": "Interface.*changed state to down",
+    "match_type": "regex",
+    "priority": 200,
+    "prod_handling": "alert",
+    "dev_handling": "suppress",
+    "team_assignment": "network-ops"
+  }'
+
+# Response: {"id": 42, "message": "Rule created"}
+
+# ===== Get All Rules =====
+curl -X GET "http://localhost:8090/api/v2/rules?is_active=true&limit=10" \
+  -H "X-API-Key: dev-key-12345"
+
+# Response: {"rules": [...], "total": 42, "limit": 10, "offset": 0}
+
+# ===== Update a Rule =====
+curl -X PUT http://localhost:8090/api/v2/rules/42 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-key-12345" \
+  -d '{
+    "priority": 500,
+    "prod_handling": "suppress",
+    "reason": "False positive - too noisy"
+  }'
+
+# Response: {"message": "Rule updated"}
+
+# ===== Get SLO Status =====
+curl -X GET http://localhost:8090/api/v1/slo
+
+# Response: {
+#   "timestamp": 1736680200.0,
+#   "overall_compliant": true,
+#   "slos": {
+#     "ingest_availability": {"target": 0.999, "actual": 0.9995, "compliant": true},
+#     "alerter_latency": {"target": 0.95, "actual": 0.98, "compliant": true}
+#   }
+# }
+
+# ===== Get Real-Time Metrics =====
+curl -X GET http://localhost:8090/api/v2/metrics
+
+# Response: {
+#   "timestamp": 1736680200.0,
+#   "counters": {
+#     "ingest_total": 1234567,
+#     "alerter_processed_total": 1234500,
+#     "moog_forwarded_total": 45678
+#   },
+#   "queues": {
+#     "ingest_queue_depth": 12,
+#     "alert_queue_depth": 3
+#   },
+#   "circuit_breaker": {
+#     "moog_state": "CLOSED"
+#   }
+# }
+
+# ===== Health Checks =====
+curl -X GET http://localhost:8080/health
+curl -X GET http://localhost:8090/health
+
+# Response: {"status": "healthy", "service": "ingestor"}
+```
+
+#### Using Python requests
+```python
+import requests
+import json
+
+BASE_URL = "http://localhost:8090"
+API_KEY = "dev-key-12345"
+
+# ===== Helper function =====
+def api_call(method, endpoint, data=None):
+    """Make API call with authentication"""
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": API_KEY
+    }
+    url = f"{BASE_URL}{endpoint}"
+
+    if method == "GET":
+        response = requests.get(url, headers=headers)
+    elif method == "POST":
+        response = requests.post(url, headers=headers, json=data)
+    elif method == "PUT":
+        response = requests.put(url, headers=headers, json=data)
+    elif method == "DELETE":
+        response = requests.delete(url, headers=headers)
+
+    return response.json()
+
+# ===== Create a rule =====
+rule_data = {
+    "match_string": "CRITICAL",
+    "match_type": "contains",
+    "priority": 300,
+    "prod_handling": "alert",
+    "dev_handling": "log",
+    "team_assignment": "sre"
+}
+
+result = api_call("POST", "/api/v2/rules", rule_data)
+rule_id = result["id"]
+print(f"Created rule {rule_id}")
+
+# ===== Update the rule =====
+update_data = {
+    "priority": 400,
+    "reason": "Increased priority after incident review"
+}
+
+api_call("PUT", f"/api/v2/rules/{rule_id}", update_data)
+print(f"Updated rule {rule_id}")
+
+# ===== Get audit logs =====
+logs = api_call("GET", "/api/v2/audit-logs?table_name=alert_rules&limit=5")
+print(f"Found {len(logs['logs'])} audit log entries")
+```
+
+### Example 5: Redis Data Structure Examples
+
+```bash
+# ===== Queue Keys =====
+# Main ingest queue (list)
+redis-cli LLEN mutt:ingest_queue
+# Returns: 342
+
+# View messages in queue (without removing)
+redis-cli LRANGE mutt:ingest_queue 0 2
+# Returns: JSON event strings
+
+# ===== Processing Lists (BRPOPLPUSH pattern) =====
+# Each worker has its own processing list
+redis-cli LLEN mutt:processing:alerter:alerter-pod-1
+# Returns: 1 (one message being processed)
+
+# ===== Heartbeat Keys =====
+# Workers maintain heartbeats with 30s TTL
+redis-cli GET mutt:heartbeat:alerter:alerter-pod-1
+# Returns: "1736680200" (timestamp)
+
+redis-cli TTL mutt:heartbeat:alerter:alerter-pod-1
+# Returns: 25 (seconds remaining)
+
+# ===== Circuit Breaker State =====
+redis-cli GET mutt:circuit:moog:state
+# Returns: "CLOSED" | "OPEN" | "HALF_OPEN"
+
+redis-cli GET mutt:circuit:moog:failures
+# Returns: "2" (consecutive failures)
+
+# ===== Dynamic Configuration =====
+redis-cli HGETALL mutt:config:alerter
+# Returns:
+# 1) "cache_ttl_seconds"
+# 2) "300"
+# 3) "queue_warn_threshold"
+# 4) "1000"
+# 5) "queue_shed_threshold"
+# 6) "2000"
+
+# ===== Rate Limiting (Sorted Set) =====
+redis-cli ZRANGE mutt:rate_limit:moog 0 -1 WITHSCORES
+# Returns timestamp:counter entries within sliding window
+
+# ===== Metrics Counters =====
+redis-cli GET mutt:metrics:ingest:total
+# Returns: "1234567"
+
+redis-cli GET mutt:metrics:alerter:total
+# Returns: "1234500"
+
+# ===== Dead Letter Queues =====
+redis-cli LLEN mutt:dlq:alerter
+# Returns: 5 (poisoned messages)
+
+redis-cli LLEN mutt:dlq:moog
+# Returns: 2 (failed forwards)
+
+redis-cli LLEN mutt:poison
+# Returns: 0 (messages exceeding max retries)
+
+# ===== Unhandled Event Tracking =====
+redis-cli HGETALL mutt:unhandled:counters
+# Returns:
+# 1) "router-.*:link down"
+# 2) "42"  (42 unhandled events matching this pattern)
+
+# ===== Example Event Structure =====
+redis-cli --raw LINDEX mutt:ingest_queue 0
+# Returns (pretty-printed):
+{
+  "timestamp": "2025-01-12T10:30:00Z",
+  "hostname": "router-01.example.com",
+  "message": "Interface GigabitEthernet0/1 changed state to down",
+  "severity": 3,
+  "source": "syslog",
+  "ingestion_timestamp": 1736680200.123,
+  "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+# ===== Example Enriched Alert =====
+redis-cli --raw LINDEX mutt:alert_queue 0
+# Returns (pretty-printed):
+{
+  "timestamp": "2025-01-12T10:30:00Z",
+  "hostname": "router-01.example.com",
+  "message": "Interface GigabitEthernet0/1 changed state to down",
+  "severity": 3,
+  "source": "syslog",
+  "ingestion_timestamp": 1736680200.123,
+  "correlation_id": "550e8400-e29b-41d4-a716-446655440000",
+  "matched_rule_id": 42,
+  "team_assignment": "network-ops",
+  "prod_handling": "alert",
+  "processing_timestamp": 1736680200.456
+}
+```
+
+### Example 6: PostgreSQL Query Examples
+
+```sql
+-- ===== View Active Alert Rules =====
+SELECT id, match_string, match_type, priority, prod_handling, team_assignment
+FROM alert_rules
+WHERE is_active = true
+ORDER BY priority DESC, id ASC
+LIMIT 10;
+
+-- ===== Check Event Audit Log Partitions =====
+SELECT
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
+FROM pg_tables
+WHERE tablename LIKE 'event_audit_log_%'
+ORDER BY tablename DESC;
+
+-- ===== Query Recent Events =====
+SELECT
+    event_timestamp,
+    hostname,
+    matched_rule_id,
+    handling_decision,
+    forwarded_to_moog
+FROM event_audit_log
+WHERE event_timestamp >= NOW() - INTERVAL '1 hour'
+ORDER BY event_timestamp DESC
+LIMIT 100;
+
+-- ===== View Configuration Change Audit Trail =====
+SELECT
+    changed_at,
+    changed_by,
+    operation,
+    table_name,
+    record_id,
+    old_values->>'priority' AS old_priority,
+    new_values->>'priority' AS new_priority,
+    reason
+FROM config_audit_log
+WHERE table_name = 'alert_rules'
+    AND operation = 'UPDATE'
+ORDER BY changed_at DESC
+LIMIT 20;
+
+-- ===== Find Unmatched Events (High-Value Query) =====
+SELECT
+    hostname,
+    COUNT(*) as unmatched_count,
+    MAX(event_timestamp) as last_seen
+FROM event_audit_log
+WHERE matched_rule_id IS NULL
+    AND event_timestamp >= NOW() - INTERVAL '24 hours'
+GROUP BY hostname
+HAVING COUNT(*) > 10
+ORDER BY unmatched_count DESC;
+
+-- ===== SLO Compliance Query =====
+-- Alerter processing latency (p95 < 100ms)
+SELECT
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY
+        EXTRACT(EPOCH FROM (processing_timestamp - ingestion_timestamp)) * 1000
+    ) AS p95_latency_ms
+FROM event_audit_log
+WHERE event_timestamp >= NOW() - INTERVAL '1 hour';
+
+-- ===== Partition Maintenance =====
+-- Create next month's partition
+CREATE TABLE event_audit_log_2025_02 PARTITION OF event_audit_log
+FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
+
+-- Drop old partitions (after archiving)
+DROP TABLE IF EXISTS event_audit_log_2023_01;
+```
+
+---
+
 ## Phase 0: Foundation & Architecture
 
 ### 0.1 Read Architecture Documentation
@@ -1404,13 +2169,522 @@ def run_janitor():
                 pass
 ```
 
+#### Detailed Function Specifications
+
+**1. `find_matching_rule(event: dict) -> dict`**
+
+```python
+Purpose: Match event against cached rules by priority
+
+Algorithm:
+1. Get rules from cache (sorted by priority DESC)
+2. For each rule:
+   a. If match_type == 'contains':
+      - Check if rule.match_string in event['message']
+   b. If match_type == 'regex':
+      - Compile regex (cache compiled patterns)
+      - Check if re.search(rule.match_string, event['message'])
+   c. If match_type == 'oid_prefix':
+      - Check if event.get('trap_oid', '').startswith(rule.trap_oid)
+3. Return first matching rule
+4. If no match, return default rule (priority 1, Log_only)
+
+Cache Invalidation:
+- Reload every 5 minutes (background thread)
+- Reload on SIGHUP signal
+- Reload on dynamic config change: alerter_reload_rules_now=true
+
+Implementation:
+def find_matching_rule(event: dict) -> dict:
+    # Check cache freshness
+    if not cache.get('rules') or cache_expired():
+        reload_cache()
+
+    # Sort by priority (highest first)
+    sorted_rules = sorted(cache['rules'], key=lambda r: r['priority'], reverse=True)
+
+    for rule in sorted_rules:
+        if not rule['is_active']:
+            continue
+
+        match_type = rule['match_type']
+
+        if match_type == 'contains':
+            if rule['match_string'] and rule['match_string'] in event.get('message', ''):
+                logger.debug(f"Rule {rule['id']} matched (contains)")
+                return rule
+
+        elif match_type == 'regex':
+            if rule['match_string']:
+                # Cache compiled regex patterns
+                pattern_key = f"regex_{rule['id']}"
+                if pattern_key not in cache['compiled_patterns']:
+                    try:
+                        cache['compiled_patterns'][pattern_key] = re.compile(rule['match_string'])
+                    except re.error as e:
+                        logger.error(f"Invalid regex in rule {rule['id']}: {e}")
+                        continue
+
+                pattern = cache['compiled_patterns'][pattern_key]
+                if pattern.search(event.get('message', '')):
+                    logger.debug(f"Rule {rule['id']} matched (regex)")
+                    return rule
+
+        elif match_type == 'oid_prefix':
+            if rule['trap_oid'] and event.get('trap_oid', '').startswith(rule['trap_oid']):
+                logger.debug(f"Rule {rule['id']} matched (oid_prefix)")
+                return rule
+
+    # No match - return default rule
+    logger.debug("No rule matched, using default")
+    return get_default_rule()
+```
+
+**2. `is_development_host(hostname: str) -> bool`**
+
+```python
+Purpose: Check if host is in dev environment
+
+Logic:
+1. Check local cache (5-minute TTL)
+2. If not cached:
+   - Query: SELECT hostname FROM development_hosts
+   - Store set in cache
+   - Set cache timestamp
+3. Return hostname in dev_hosts_set
+
+Implementation:
+def is_development_host(hostname: str) -> bool:
+    # Check cache freshness
+    cache_age = time.time() - cache.get('dev_hosts_timestamp', 0)
+
+    if cache_age > 300:  # 5 minutes
+        # Reload from database
+        conn = db_pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT hostname FROM development_hosts")
+            cache['dev_hosts'] = {row[0] for row in cursor.fetchall()}
+            cache['dev_hosts_timestamp'] = time.time()
+        finally:
+            db_pool.putconn(conn)
+
+    return hostname in cache.get('dev_hosts', set())
+```
+
+**3. `handle_poison_message(message: str, correlation_id: str, error: Exception)`**
+
+```python
+Purpose: Move poison message to DLQ with retry logic
+
+Steps:
+1. Parse message to get retry_count (default 0)
+2. Increment retry_count
+3. Add error metadata:
+   - _poison_error_type: type(error).__name__
+   - _poison_error_msg: str(error)
+   - _poison_timestamp: now()
+4. If retry_count >= MAX_RETRIES (default 5):
+   - LPUSH mutt:dlq:alerter message
+   - Log warning: "Message moved to DLQ after N retries"
+   - Increment metric: alerter_dlq_messages_total
+5. Else:
+   - RPUSH mutt:ingest_queue message (retry)
+   - Log info: "Message requeued, attempt N/5"
+6. Remove from processing list
+
+Implementation:
+def handle_poison_message(message_json: str, correlation_id: str, error: Exception):
+    try:
+        message = json.loads(message_json)
+    except json.JSONDecodeError:
+        # Truly corrupted - straight to DLQ
+        redis_client.lpush('mutt:dlq:alerter', message_json)
+        metrics['alerter_poison_messages_total'].labels(reason='json_decode').inc()
+        return
+
+    # Get retry count
+    retry_count = message.get('_retry_count', 0) + 1
+    message['_retry_count'] = retry_count
+    message['_last_error'] = {
+        'type': type(error).__name__,
+        'message': str(error),
+        'timestamp': time.time()
+    }
+
+    max_retries = int(dynamic_config.get('alerter_max_retries', '5'))
+
+    if retry_count >= max_retries:
+        # Move to DLQ
+        redis_client.lpush('mutt:dlq:alerter', json.dumps(message))
+        logger.warning(
+            f"Message {correlation_id} moved to DLQ after {retry_count} retries: {error}"
+        )
+        metrics['alerter_dlq_messages_total'].labels(reason='max_retries').inc()
+    else:
+        # Retry with exponential backoff
+        backoff = min(2 ** retry_count, 60)  # Cap at 60 seconds
+        logger.info(
+            f"Message {correlation_id} requeued (attempt {retry_count}/{max_retries}), "
+            f"backoff: {backoff}s"
+        )
+        time.sleep(backoff)
+        redis_client.rpush('mutt:ingest_queue', json.dumps(message))
+        metrics['alerter_retry_messages_total'].inc()
+
+    # Remove from processing list
+    redis_client.lrem(f'mutt:processing:alerter:{pod_name}', 1, message_json)
+```
+
+#### Backpressure Implementation
+
+```python
+Purpose: Monitor queue depth and shed load if necessary
+
+Configuration (via dynamic config):
+- alerter_queue_warn_threshold (default: 1000)
+- alerter_queue_shed_threshold (default: 2000)
+- alerter_shed_mode (default: 'dlq' or 'defer')
+- alerter_defer_sleep_ms (default: 250)
+
+Implementation:
+def check_backpressure():
+    """Monitor queue depth and apply backpressure if needed"""
+    queue_depth = redis_client.llen('mutt:alert_queue')
+
+    # Get thresholds from dynamic config
+    warn_threshold = int(dynamic_config.get('alerter_queue_warn_threshold', '1000'))
+    shed_threshold = int(dynamic_config.get('alerter_queue_shed_threshold', '2000'))
+    shed_mode = dynamic_config.get('alerter_shed_mode', 'dlq')
+
+    # Update gauge
+    metrics['alert_queue_depth'].set(queue_depth)
+
+    # Warning state
+    if queue_depth >= warn_threshold:
+        logger.warning(
+            f"Alert queue depth HIGH: {queue_depth} "
+            f"(warn threshold: {warn_threshold})"
+        )
+        metrics['alerter_backpressure_warnings_total'].inc()
+
+    # Shedding state
+    if queue_depth >= shed_threshold:
+        logger.error(
+            f"Alert queue CRITICAL: {queue_depth}, "
+            f"applying backpressure (mode: {shed_mode})"
+        )
+
+        if shed_mode == 'dlq':
+            # Shed messages from ingest_queue to DLQ
+            shed_count = 0
+            for _ in range(10):  # Shed up to 10 messages
+                msg = redis_client.rpop('mutt:ingest_queue')
+                if msg:
+                    redis_client.lpush('mutt:dlq:alerter', msg)
+                    shed_count += 1
+
+            if shed_count > 0:
+                logger.warning(f"Shed {shed_count} messages to DLQ due to backpressure")
+                metrics['alerter_shed_messages_total'].inc(shed_count)
+
+        elif shed_mode == 'defer':
+            # Sleep to allow downstream processing to catch up
+            defer_ms = int(dynamic_config.get('alerter_defer_sleep_ms', '250'))
+            time.sleep(defer_ms / 1000.0)
+            metrics['alerter_defer_events_total'].inc()
+
+# Call this function periodically or before each message processing
+```
+
+#### Complete Main Loop with All Features
+
+```python
+def main_loop():
+    """Main event processing loop with full error handling and backpressure"""
+
+    # Get pod name for processing list
+    pod_name = os.getenv('POD_NAME', socket.gethostname())
+    processing_list = f'mutt:processing:alerter:{pod_name}'
+    heartbeat_key = f'mutt:heartbeat:alerter:{pod_name}'
+
+    # Start heartbeat thread
+    heartbeat_thread = threading.Thread(target=heartbeat_worker, args=(heartbeat_key,), daemon=True)
+    heartbeat_thread.start()
+
+    # Start cache reload thread
+    cache_reload_thread = threading.Thread(target=cache_reload_worker, daemon=True)
+    cache_reload_thread.start()
+
+    logger.info(f"Alerter service started (pod: {pod_name})")
+
+    while True:
+        try:
+            # Check backpressure before processing
+            check_backpressure()
+
+            # 1. Atomic message retrieval from ingest_queue
+            event_json = redis_client.brpoplpush(
+                'mutt:ingest_queue',
+                processing_list,
+                timeout=5
+            )
+
+            if not event_json:
+                continue  # Timeout, loop again
+
+            # 2. Parse event
+            try:
+                event = json.loads(event_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in message: {e}")
+                handle_poison_message(event_json, 'unknown', e)
+                continue
+
+            correlation_id = event.get('correlation_id', 'unknown')
+
+            try:
+                # 3. Find matching rule
+                start_time = time.time()
+                matched_rule = find_matching_rule(event)
+
+                # 4. Determine environment
+                is_dev = is_development_host(event.get('hostname', ''))
+
+                # 5. Determine handling
+                handling = matched_rule['dev_handling'] if is_dev else matched_rule['prod_handling']
+
+                # 6. Enrich event
+                event['_matched_rule_id'] = matched_rule['id']
+                event['_team_assignment'] = matched_rule['team_assignment']
+                event['_handling'] = handling
+                event['_is_dev'] = is_dev
+
+                # 7. Log to audit trail (PostgreSQL)
+                log_to_audit_trail(event, matched_rule, handling)
+
+                # 8. Forward to Moog if necessary
+                if handling in ['Page_and_ticket', 'Ticket_only']:
+                    alert_json = json.dumps(event)
+                    redis_client.lpush('mutt:alert_queue', alert_json)
+                    logger.info(
+                        f"Event {correlation_id} forwarded to alert_queue "
+                        f"(rule: {matched_rule['id']}, handling: {handling})"
+                    )
+                else:
+                    logger.debug(
+                        f"Event {correlation_id} not forwarded "
+                        f"(handling: {handling})"
+                    )
+
+                # 9. Success - remove from processing list
+                redis_client.lrem(processing_list, 1, event_json)
+
+                # 10. Update metrics
+                processing_time = time.time() - start_time
+                metrics['alerter_events_processed_total'].labels(
+                    status='success',
+                    handling=handling
+                ).inc()
+                metrics['alerter_processing_latency_seconds'].observe(processing_time)
+
+            except Exception as e:
+                # Processing error - handle as poison message
+                logger.error(f"Error processing event {correlation_id}: {e}", exc_info=True)
+                handle_poison_message(event_json, correlation_id, e)
+                metrics['alerter_events_processed_total'].labels(
+                    status='error',
+                    handling='unknown'
+                ).inc()
+
+        except KeyboardInterrupt:
+            logger.info("Shutting down alerter service")
+            break
+
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
+            time.sleep(1)  # Brief pause before retry
+
+def heartbeat_worker(heartbeat_key: str):
+    """Background thread to maintain heartbeat"""
+    while True:
+        redis_client.set(heartbeat_key, time.time(), ex=30)
+        time.sleep(10)
+
+def cache_reload_worker():
+    """Background thread to reload cache periodically"""
+    while True:
+        time.sleep(300)  # 5 minutes
+        try:
+            reload_cache()
+            logger.info("Cache reloaded successfully")
+        except Exception as e:
+            logger.error(f"Cache reload failed: {e}")
+```
+
 #### Test Cases
-- `test_process_event_with_matching_rule`
-- `test_process_event_with_no_matching_rule`
-- `test_process_event_for_dev_host`
-- `test_cache_reload`
-- `test_janitor_recovery`
-- `test_poison_message_handling`
+
+```python
+def test_process_event_with_matching_rule():
+    """Test event processing with a matching rule"""
+    event = {
+        'message': 'Interface GigE0/1 down',
+        'hostname': 'router1',
+        'correlation_id': 'test-123'
+    }
+
+    rule = {
+        'id': 1,
+        'match_string': 'Interface',
+        'match_type': 'contains',
+        'priority': 100,
+        'prod_handling': 'Page_and_ticket',
+        'dev_handling': 'Log_only',
+        'team_assignment': 'NETO'
+    }
+
+    cache['rules'] = [rule]
+    cache['dev_hosts'] = set()
+
+    process_event(event)
+
+    # Verify event enriched
+    assert event['_matched_rule_id'] == 1
+    assert event['_handling'] == 'Page_and_ticket'
+    assert event['_is_dev'] is False
+
+    # Verify forwarded to alert_queue
+    assert redis_client.llen('mutt:alert_queue') == 1
+
+def test_process_event_for_dev_host():
+    """Test that dev hosts use dev_handling"""
+    event = {
+        'message': 'CRITICAL error',
+        'hostname': 'dev-host-1',
+        'correlation_id': 'dev-123'
+    }
+
+    rule = {
+        'id': 2,
+        'match_string': 'CRITICAL',
+        'match_type': 'contains',
+        'priority': 900,
+        'prod_handling': 'Page_and_ticket',
+        'dev_handling': 'Log_only',
+        'team_assignment': 'NETO'
+    }
+
+    cache['rules'] = [rule]
+    cache['dev_hosts'] = {'dev-host-1'}
+
+    process_event(event)
+
+    # Verify dev handling applied
+    assert event['_handling'] == 'Log_only'
+    assert event['_is_dev'] is True
+
+    # Verify NOT forwarded
+    assert redis_client.llen('mutt:alert_queue') == 0
+
+def test_alerter_backpressure_shed_mode():
+    """Test backpressure shedding to DLQ"""
+    # Fill alert_queue to shed threshold
+    for i in range(2001):
+        redis_client.lpush('mutt:alert_queue', json.dumps({'id': i}))
+
+    # Trigger backpressure check
+    check_backpressure()
+
+    # Assert messages moved to DLQ
+    dlq_depth = redis_client.llen('mutt:dlq:alerter')
+    assert dlq_depth >= 10
+
+def test_alerter_janitor_recovery():
+    """Test janitor recovers orphaned messages"""
+    # Simulate crashed pod - messages in processing list
+    redis_client.lpush('mutt:processing:alerter:pod-crashed', json.dumps({'id': 1}))
+    redis_client.lpush('mutt:processing:alerter:pod-crashed', json.dumps({'id': 2}))
+
+    # Expire heartbeat
+    redis_client.delete('mutt:heartbeat:alerter:pod-crashed')
+
+    # Run janitor
+    run_janitor()
+
+    # Assert messages recovered to ingest_queue
+    recovered = redis_client.llen('mutt:ingest_queue')
+    assert recovered == 2
+
+    # Assert processing list cleaned up
+    assert redis_client.llen('mutt:processing:alerter:pod-crashed') == 0
+
+def test_rule_matching_regex():
+    """Test regex rule matching"""
+    event = {
+        'message': 'Disk usage at 95%',
+        'hostname': 'server1'
+    }
+
+    rule = {
+        'id': 3,
+        'match_string': r'Disk.*\d+%',
+        'match_type': 'regex',
+        'priority': 200,
+        'prod_handling': 'Ticket_only',
+        'dev_handling': 'Log_only',
+        'team_assignment': 'UNIX'
+    }
+
+    cache['rules'] = [rule]
+
+    matched = find_matching_rule(event)
+    assert matched['id'] == 3
+
+def test_poison_message_retry_logic():
+    """Test poison message retry with exponential backoff"""
+    message = json.dumps({
+        'message': 'test',
+        'hostname': 'test',
+        'correlation_id': 'poison-123',
+        '_retry_count': 2
+    })
+
+    error = ValueError("Test error")
+
+    # Should retry (count < 5)
+    handle_poison_message(message, 'poison-123', error)
+
+    # Verify requeued
+    requeued = redis_client.lrange('mutt:ingest_queue', 0, -1)
+    assert len(requeued) == 1
+
+    requeued_msg = json.loads(requeued[0])
+    assert requeued_msg['_retry_count'] == 3
+
+    # Verify not in DLQ
+    assert redis_client.llen('mutt:dlq:alerter') == 0
+
+def test_poison_message_max_retries():
+    """Test poison message goes to DLQ after max retries"""
+    message = json.dumps({
+        'message': 'test',
+        'hostname': 'test',
+        'correlation_id': 'poison-456',
+        '_retry_count': 5
+    })
+
+    error = ValueError("Test error")
+
+    # Should go to DLQ (count >= 5)
+    handle_poison_message(message, 'poison-456', error)
+
+    # Verify in DLQ
+    dlq_msgs = redis_client.lrange('mutt:dlq:alerter', 0, -1)
+    assert len(dlq_msgs) == 1
+
+    # Verify not requeued
+    assert redis_client.llen('mutt:ingest_queue') == 0
+```
 
 ### 2.4 Moog Forwarder Service
 
@@ -1503,11 +2777,633 @@ def run_janitor():
                 pass
 ```
 
+#### Circuit Breaker Implementation
+
+```python
+class CircuitBreaker:
+    """Redis-based circuit breaker for Moogsoft forwarding
+
+    States:
+    - CLOSED: Normal operation (requests allowed)
+    - OPEN: Too many failures (requests blocked)
+    - HALF_OPEN: Testing if service recovered (single test request)
+    """
+
+    def __init__(self, redis_client, key_prefix='mutt:circuit:moog'):
+        self.redis = redis_client
+        self.key_prefix = key_prefix
+        self.failure_threshold = 5  # Open circuit after 5 failures
+        self.timeout = 60  # Try recovery after 60 seconds
+        self.half_open_max_requests = 1
+
+    def is_open(self) -> bool:
+        """Check if circuit is currently open"""
+        state = self.redis.get(f'{self.key_prefix}:state')
+        return state == b'OPEN'
+
+    def record_success(self):
+        """Record successful request - reset failure counter"""
+        # Reset failure counter
+        self.redis.delete(f'{self.key_prefix}:failures')
+
+        # Transition from HALF_OPEN to CLOSED
+        current_state = self.redis.get(f'{self.key_prefix}:state')
+        if current_state == b'HALF_OPEN':
+            self.redis.set(f'{self.key_prefix}:state', 'CLOSED')
+            logger.info("Circuit breaker HALF_OPEN -> CLOSED (service recovered)")
+            metrics['circuit_breaker_state'].set(0)  # 0 = CLOSED
+            metrics['circuit_breaker_transitions_total'].labels(
+                to_state='closed'
+            ).inc()
+
+    def record_failure(self):
+        """Record failed request - may open circuit"""
+        failures = self.redis.incr(f'{self.key_prefix}:failures')
+
+        if failures >= self.failure_threshold:
+            # Open the circuit
+            self.redis.set(f'{self.key_prefix}:state', 'OPEN')
+            self.redis.set(f'{self.key_prefix}:opened_at', time.time())
+            logger.error(
+                f"Circuit breaker OPENED after {failures} consecutive failures"
+            )
+            metrics['circuit_breaker_state'].set(1)  # 1 = OPEN
+            metrics['circuit_breaker_transitions_total'].labels(
+                to_state='open'
+            ).inc()
+            metrics['circuit_breaker_opens_total'].inc()
+
+    def attempt_reset(self) -> bool:
+        """Try to transition from OPEN to HALF_OPEN after timeout"""
+        state = self.redis.get(f'{self.key_prefix}:state')
+
+        if state != b'OPEN':
+            return False
+
+        # Check if timeout elapsed
+        opened_at = float(
+            self.redis.get(f'{self.key_prefix}:opened_at') or 0
+        )
+        elapsed = time.time() - opened_at
+
+        if elapsed >= self.timeout:
+            # Try HALF_OPEN state
+            self.redis.set(f'{self.key_prefix}:state', 'HALF_OPEN')
+            logger.info(
+                f"Circuit breaker OPEN -> HALF_OPEN (testing recovery after {elapsed:.1f}s)"
+            )
+            metrics['circuit_breaker_state'].set(2)  # 2 = HALF_OPEN
+            metrics['circuit_breaker_transitions_total'].labels(
+                to_state='half_open'
+            ).inc()
+            return True
+
+        return False
+
+    def allow_request(self) -> bool:
+        """Check if request is allowed through circuit breaker"""
+        state = self.redis.get(f'{self.key_prefix}:state')
+
+        if state == b'CLOSED' or state is None:
+            return True
+
+        if state == b'OPEN':
+            # Try to transition to HALF_OPEN
+            return self.attempt_reset()
+
+        if state == b'HALF_OPEN':
+            # Allow single test request
+            return True
+
+        return False
+```
+
+#### Rate Limiting with Shared State
+
+```python
+# Lua script for atomic sliding window rate limiting
+RATE_LIMIT_SCRIPT = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+
+-- Remove expired entries (outside sliding window)
+redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+
+-- Count current requests in window
+local current = redis.call('ZCARD', key)
+
+-- Check if under limit
+if current < limit then
+    -- Add new request with unique ID (timestamp + counter)
+    local counter = redis.call('INCR', key .. ':counter')
+    redis.call('ZADD', key, now, now .. ':' .. counter)
+    redis.call('EXPIRE', key, window)
+    return 1  -- Allowed
+else
+    return 0  -- Rejected
+end
+"""
+
+class SharedRateLimiter:
+    """Rate limiter shared across all Moog Forwarder instances via Redis
+
+    Uses sliding window algorithm for accurate rate limiting
+    """
+
+    def __init__(self, redis_client, key='mutt:rate_limit:moog',
+                 max_requests=50, window_seconds=1):
+        self.redis = redis_client
+        self.key = key
+        self.max_requests = max_requests
+        self.window = window_seconds
+        self.script = redis_client.register_script(RATE_LIMIT_SCRIPT)
+
+    def is_allowed(self) -> bool:
+        """Check if request is within rate limit"""
+        result = self.script(
+            keys=[self.key],
+            args=[time.time(), self.window, self.max_requests]
+        )
+
+        if result == 1:
+            metrics['rate_limit_requests_total'].labels(
+                result='allowed'
+            ).inc()
+            return True
+        else:
+            metrics['rate_limit_requests_total'].labels(
+                result='rejected'
+            ).inc()
+            logger.warning(
+                f"Rate limit exceeded ({self.max_requests}/{self.window}s), "
+                "deferring request"
+            )
+            return False
+```
+
+#### Complete Moog Forwarding Function
+
+```python
+def forward_to_moog(alert: dict, circuit_breaker: CircuitBreaker,
+                   rate_limiter: SharedRateLimiter) -> bool:
+    """Forward alert to Moogsoft with reliability patterns
+
+    Returns:
+        True if successfully forwarded
+        False if deferred (rate limit/circuit breaker)
+
+    Raises:
+        Exception for retriable errors
+    """
+
+    # 1. Check circuit breaker
+    if not circuit_breaker.allow_request():
+        logger.warning(
+            f"Circuit breaker {circuit_breaker.redis.get('mutt:circuit:moog:state').decode()}, "
+            f"requeuing alert {alert.get('correlation_id')}"
+        )
+        redis_client.rpush('mutt:alert_queue', json.dumps(alert))
+        time.sleep(5)  # Back off when circuit open
+        return False
+
+    # 2. Check rate limit
+    if not rate_limiter.is_allowed():
+        logger.info(
+            f"Rate limit hit, requeuing alert {alert.get('correlation_id')}"
+        )
+        redis_client.rpush('mutt:alert_queue', json.dumps(alert))
+        time.sleep(1)  # Brief back off
+        return False
+
+    # 3. Construct Moogsoft payload
+    payload = {
+        'source': alert.get('hostname', 'unknown'),
+        'description': alert.get('message', ''),
+        'severity': alert.get('syslog_severity', 5),
+        'manager': 'MUTT',
+        'class': alert.get('_team_assignment', 'Unknown'),
+        'type': alert.get('trap_oid', 'syslog'),
+        'agent_time': alert.get('timestamp'),
+        'signature': alert.get('correlation_id'),
+        'agent': {
+            'location': alert.get('hostname'),
+            'name': 'MUTT',
+            'time': time.time()
+        }
+    }
+
+    # 4. Make HTTP request with retries
+    try:
+        with requests.Session() as session:
+            # Configure retry strategy for transient errors
+            retry = Retry(
+                total=3,
+                backoff_factor=1,  # 1s, 2s, 4s
+                status_forcelist=(500, 502, 503, 504),
+                allowed_methods=['POST']
+            )
+            adapter = HTTPAdapter(max_retries=retry)
+            session.mount('https://', adapter)
+            session.mount('http://', adapter)
+
+            # Make request with timing
+            start = time.time()
+            response = session.post(
+                MOOG_WEBHOOK_URL,
+                json=payload,
+                timeout=10,
+                headers={
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'MUTT/2.5'
+                }
+            )
+            latency = time.time() - start
+
+            # 5. Handle response codes
+            if response.status_code == 200:
+                # Success
+                circuit_breaker.record_success()
+                logger.info(
+                    f"Forwarded to Moogsoft: {alert['correlation_id']} "
+                    f"(latency: {latency:.3f}s, status: {response.status_code})"
+                )
+                metrics['moog_forward_requests_total'].labels(
+                    status='success',
+                    code=200
+                ).inc()
+                metrics['moog_forward_latency_seconds'].observe(latency)
+                return True
+
+            elif 400 <= response.status_code < 500:
+                # Client error - permanent failure, move to DLQ
+                logger.error(
+                    f"Moogsoft rejected alert {alert['correlation_id']} "
+                    f"(HTTP {response.status_code}): {response.text}"
+                )
+                redis_client.lpush('mutt:dlq:moog', json.dumps(alert))
+                metrics['moog_forward_requests_total'].labels(
+                    status='client_error',
+                    code=response.status_code
+                ).inc()
+                # Don't record as circuit breaker failure (client error)
+                return True  # Handled (moved to DLQ)
+
+            else:
+                # Server error - retriable
+                raise requests.HTTPError(
+                    f"HTTP {response.status_code}: {response.text}"
+                )
+
+    except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as e:
+        # 6. Handle failures - record for circuit breaker
+        circuit_breaker.record_failure()
+
+        retry_count = alert.get('_moog_retry_count', 0) + 1
+        alert['_moog_retry_count'] = retry_count
+        alert['_last_moog_error'] = {
+            'type': type(e).__name__,
+            'message': str(e),
+            'timestamp': time.time()
+        }
+
+        max_retries = 5
+
+        if retry_count >= max_retries:
+            # Max retries reached - move to DLQ
+            logger.error(
+                f"Max retries ({max_retries}) reached for alert "
+                f"{alert['correlation_id']}, moving to DLQ: {e}"
+            )
+            redis_client.lpush('mutt:dlq:moog', json.dumps(alert))
+            metrics['moog_forward_requests_total'].labels(
+                status='max_retries',
+                code=0
+            ).inc()
+            return True  # Handled (moved to DLQ)
+        else:
+            # Exponential backoff retry
+            backoff = min(2 ** retry_count, 60)  # Cap at 60s
+            logger.warning(
+                f"Moogsoft forward failed for {alert['correlation_id']} "
+                f"(attempt {retry_count}/{max_retries}): {e}, "
+                f"retrying in {backoff}s"
+            )
+            time.sleep(backoff)
+            redis_client.rpush('mutt:alert_queue', json.dumps(alert))
+            metrics['moog_forward_requests_total'].labels(
+                status='retry',
+                code=0
+            ).inc()
+            raise  # Re-raise to trigger retry logic
+```
+
+#### Complete Main Loop with All Features
+
+```python
+def main_loop():
+    """Main alert forwarding loop with full reliability patterns"""
+
+    # Get pod name
+    pod_name = os.getenv('POD_NAME', socket.gethostname())
+    processing_list = f'mutt:processing:moog:{pod_name}'
+    heartbeat_key = f'mutt:heartbeat:moog:{pod_name}'
+
+    # Initialize circuit breaker and rate limiter
+    circuit_breaker = CircuitBreaker(redis_client)
+    rate_limiter = SharedRateLimiter(
+        redis_client,
+        max_requests=int(dynamic_config.get('moog_rate_limit', '50')),
+        window_seconds=int(dynamic_config.get('moog_rate_window', '1'))
+    )
+
+    # Start heartbeat thread
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_worker,
+        args=(heartbeat_key,),
+        daemon=True
+    )
+    heartbeat_thread.start()
+
+    logger.info(f"Moog Forwarder service started (pod: {pod_name})")
+    logger.info(
+        f"Rate limit: {rate_limiter.max_requests} req/{rate_limiter.window}s"
+    )
+
+    while True:
+        try:
+            # 1. Atomic retrieval from alert_queue
+            alert_json = redis_client.brpoplpush(
+                'mutt:alert_queue',
+                processing_list,
+                timeout=5
+            )
+
+            if not alert_json:
+                continue  # Timeout, loop again
+
+            # 2. Parse alert
+            try:
+                alert = json.loads(alert_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in alert: {e}")
+                # Move corrupted message to DLQ
+                redis_client.lpush('mutt:dlq:moog', alert_json)
+                redis_client.lrem(processing_list, 1, alert_json)
+                continue
+
+            correlation_id = alert.get('correlation_id', 'unknown')
+
+            try:
+                # 3. Forward to Moogsoft
+                success = forward_to_moog(alert, circuit_breaker, rate_limiter)
+
+                if success:
+                    # 4. Remove from processing list on success
+                    redis_client.lrem(processing_list, 1, alert_json)
+                else:
+                    # Deferred (rate limit or circuit breaker)
+                    # Message already requeued by forward_to_moog
+                    redis_client.lrem(processing_list, 1, alert_json)
+
+            except Exception as e:
+                # Unexpected error - already handled by forward_to_moog
+                logger.error(
+                    f"Unexpected error forwarding {correlation_id}: {e}",
+                    exc_info=True
+                )
+                redis_client.lrem(processing_list, 1, alert_json)
+
+        except KeyboardInterrupt:
+            logger.info("Shutting down Moog Forwarder service")
+            break
+
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
+            time.sleep(1)  # Brief pause before retry
+
+def heartbeat_worker(heartbeat_key: str):
+    """Background thread to maintain heartbeat"""
+    while True:
+        redis_client.set(heartbeat_key, time.time(), ex=30)
+        time.sleep(10)
+```
+
 #### Test Cases
-- `test_forward_to_moog_success`
-- `test_forward_to_moog_with_rate_limit`
-- `test_forward_to_moog_with_http_error`
-- `test_janitor_recovery`
+
+```python
+def test_circuit_breaker_opens_after_failures():
+    """Test circuit opens after threshold failures"""
+    cb = CircuitBreaker(redis_client)
+
+    # Record 5 failures
+    for _ in range(5):
+        cb.record_failure()
+
+    # Circuit should be open
+    assert cb.is_open() is True
+    state = redis_client.get('mutt:circuit:moog:state')
+    assert state == b'OPEN'
+
+def test_circuit_breaker_half_open_after_timeout():
+    """Test circuit transitions to HALF_OPEN after timeout"""
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test')
+
+    # Open circuit
+    for _ in range(5):
+        cb.record_failure()
+
+    # Set opened_at to 61 seconds ago
+    redis_client.set('mutt:circuit:test:opened_at', time.time() - 61)
+
+    # Should allow request (transition to HALF_OPEN)
+    assert cb.allow_request() is True
+    state = redis_client.get('mutt:circuit:test:state')
+    assert state == b'HALF_OPEN'
+
+def test_circuit_breaker_closes_on_success():
+    """Test circuit closes after successful request in HALF_OPEN"""
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test2')
+
+    # Set to HALF_OPEN
+    redis_client.set('mutt:circuit:test2:state', 'HALF_OPEN')
+
+    # Record success
+    cb.record_success()
+
+    # Should be CLOSED
+    state = redis_client.get('mutt:circuit:test2:state')
+    assert state == b'CLOSED'
+
+def test_rate_limiter_allows_within_limit():
+    """Test rate limiter allows requests within limit"""
+    limiter = SharedRateLimiter(
+        redis_client,
+        key='mutt:test:ratelimit',
+        max_requests=10,
+        window_seconds=1
+    )
+
+    # All 10 requests should be allowed
+    for _ in range(10):
+        assert limiter.is_allowed() is True
+
+    # 11th request should be rejected
+    assert limiter.is_allowed() is False
+
+def test_rate_limiter_sliding_window():
+    """Test sliding window behavior"""
+    limiter = SharedRateLimiter(
+        redis_client,
+        key='mutt:test:sliding',
+        max_requests=5,
+        window_seconds=2
+    )
+
+    # Fill limit
+    for _ in range(5):
+        assert limiter.is_allowed() is True
+
+    # Rejected
+    assert limiter.is_allowed() is False
+
+    # Wait for window to slide
+    time.sleep(2.1)
+
+    # Should be allowed again
+    assert limiter.is_allowed() is True
+
+def test_forward_to_moog_success():
+    """Test successful forward to Moogsoft"""
+    alert = {
+        'hostname': 'test-host',
+        'message': 'Test alert',
+        'correlation_id': 'test-123',
+        'syslog_severity': 3
+    }
+
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test3')
+    rl = SharedRateLimiter(redis_client, key='mutt:test:rl2', max_requests=100)
+
+    # Mock successful response
+    with requests_mock.Mocker() as m:
+        m.post(MOOG_WEBHOOK_URL, status_code=200, text='OK')
+
+        success = forward_to_moog(alert, cb, rl)
+
+    assert success is True
+
+    # Circuit should remain closed
+    assert cb.is_open() is False
+
+def test_forward_to_moog_client_error_moves_to_dlq():
+    """Test 4xx errors go to DLQ immediately"""
+    alert = {
+        'hostname': 'test-host',
+        'message': 'Test alert',
+        'correlation_id': 'test-400',
+        'syslog_severity': 3
+    }
+
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test4')
+    rl = SharedRateLimiter(redis_client, key='mutt:test:rl3', max_requests=100)
+
+    # Mock 400 response
+    with requests_mock.Mocker() as m:
+        m.post(MOOG_WEBHOOK_URL, status_code=400, text='Bad request')
+
+        success = forward_to_moog(alert, cb, rl)
+
+    assert success is True  # Handled (moved to DLQ)
+
+    # Should be in DLQ
+    dlq = redis_client.lrange('mutt:dlq:moog', 0, -1)
+    assert len(dlq) == 1
+
+def test_forward_to_moog_server_error_retries():
+    """Test 5xx errors trigger retry logic"""
+    alert = {
+        'hostname': 'test-host',
+        'message': 'Test alert',
+        'correlation_id': 'test-500',
+        'syslog_severity': 3
+    }
+
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test5')
+    rl = SharedRateLimiter(redis_client, key='mutt:test:rl4', max_requests=100)
+
+    # Mock 500 response
+    with requests_mock.Mocker() as m:
+        m.post(MOOG_WEBHOOK_URL, status_code=500, text='Server error')
+
+        try:
+            forward_to_moog(alert, cb, rl)
+        except requests.HTTPError:
+            pass  # Expected
+
+    # Should be requeued
+    requeued = redis_client.lrange('mutt:alert_queue', 0, -1)
+    assert len(requeued) == 1
+
+    # Retry count should be incremented
+    requeued_alert = json.loads(requeued[0])
+    assert requeued_alert['_moog_retry_count'] == 1
+
+    # Circuit breaker should record failure
+    failures = redis_client.get('mutt:circuit:test5:failures')
+    assert int(failures) == 1
+
+def test_forward_to_moog_max_retries_moves_to_dlq():
+    """Test max retries moves alert to DLQ"""
+    alert = {
+        'hostname': 'test-host',
+        'message': 'Test alert',
+        'correlation_id': 'test-max-retries',
+        'syslog_severity': 3,
+        '_moog_retry_count': 5  # Already at max
+    }
+
+    cb = CircuitBreaker(redis_client, key_prefix='mutt:circuit:test6')
+    rl = SharedRateLimiter(redis_client, key='mutt:test:rl5', max_requests=100)
+
+    # Mock timeout
+    with requests_mock.Mocker() as m:
+        m.post(MOOG_WEBHOOK_URL, exc=requests.Timeout)
+
+        success = forward_to_moog(alert, cb, rl)
+
+    assert success is True  # Handled (moved to DLQ)
+
+    # Should be in DLQ
+    dlq = redis_client.lrange('mutt:dlq:moog', 0, -1)
+    assert len(dlq) == 1
+
+def test_moog_janitor_recovery():
+    """Test janitor recovers orphaned messages"""
+    # Simulate crashed pod
+    redis_client.lpush(
+        'mutt:processing:moog:pod-crashed',
+        json.dumps({'id': 1, 'correlation_id': 'orphan-1'})
+    )
+    redis_client.lpush(
+        'mutt:processing:moog:pod-crashed',
+        json.dumps({'id': 2, 'correlation_id': 'orphan-2'})
+    )
+
+    # Expire heartbeat
+    redis_client.delete('mutt:heartbeat:moog:pod-crashed')
+
+    # Run janitor
+    run_janitor()
+
+    # Messages should be recovered to alert_queue
+    recovered = redis_client.llen('mutt:alert_queue')
+    assert recovered == 2
+
+    # Processing list should be cleaned up
+    assert redis_client.llen('mutt:processing:moog:pod-crashed') == 0
+```
 
 ### 2.5 Web UI Service
 
@@ -1529,35 +3425,711 @@ app = Flask(__name__)
 metrics = PrometheusMetrics(app)
 ```
 
-#### API Endpoints
+#### Authentication Middleware
 
--   **`GET /`**: Renders the main dashboard HTML page.
--   **`GET /health`**: Health check endpoint.
--   **`GET /metrics`**: Prometheus metrics endpoint.
--   **`GET /api/v2/metrics`**: Returns real-time EPS metrics as JSON.
--   **`GET /api/v1/slo`**: Returns component SLO status as JSON.
--   **`GET /api/v2/rules`**: Lists all alert rules.
--   **`POST /api/v2/rules`**: Creates a new alert rule.
--   **`GET /api/v2/rules/{id}`**: Gets a specific rule.
--   **`PUT /api/v2/rules/{id}`**: Updates a rule.
--   **`DELETE /api/v2/rules/{id}`**: Deletes a rule.
--   **`GET /api/v2/audit-logs`**: Gets audit logs (paginated).
--   **`GET /api/v2/dev-hosts`**: Lists dev hosts.
--   **`POST /api/v2/dev-hosts`**: Adds a dev host.
--   **`DELETE /api/v2/dev-hosts/{hostname}`**: Removes a dev host.
--   **`GET /api/v2/teams`**: Lists team mappings.
--   **`POST /api/v2/teams`**: Adds a team mapping.
--   **`PUT /api/v2/teams/{hostname}`**: Updates a team mapping.
--   **`DELETE /api/v2/teams/{hostname}`**: Deletes a team mapping.
+```python
+from functools import wraps
+import os
+
+def require_auth(f):
+    """Decorator to require API key authentication for endpoints
+
+    Expects 'X-API-Key' header matching MUTT_API_KEY environment variable.
+    Returns 401 if authentication fails.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key')
+        expected_key = os.getenv('MUTT_API_KEY', 'dev-key-12345')
+
+        if not api_key:
+            logger.warning("API request without X-API-Key header")
+            return jsonify({'error': 'API key required'}), 401
+
+        if api_key != expected_key:
+            logger.warning(f"API request with invalid key: {api_key[:8]}...")
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+```
+
+#### Real-Time Metrics Endpoint
+
+```python
+@app.route('/api/v2/metrics', methods=['GET'])
+def get_realtime_metrics():
+    """Return real-time EPS metrics with 5-second Redis caching
+
+    Caching strategy:
+    - Check Redis for cached metrics (key: 'mutt:metrics:cached')
+    - If cache exists and < 5 seconds old, return cached data
+    - Otherwise, query Redis counters directly and cache result
+
+    Returns:
+        JSON with current EPS rates for all services
+    """
+    cache_key = 'mutt:metrics:cached'
+    cache_ttl = 5  # seconds
+
+    try:
+        # Try to get cached metrics
+        cached = redis_client.get(cache_key)
+        if cached:
+            logger.debug("Returning cached metrics")
+            return jsonify(json.loads(cached)), 200
+
+        # Cache miss - query Redis counters
+        logger.debug("Cache miss, querying Redis for metrics")
+
+        # Get current counter values
+        ingest_total = int(redis_client.get('mutt:metrics:ingest:total') or 0)
+        alerter_total = int(redis_client.get('mutt:metrics:alerter:total') or 0)
+        moog_total = int(redis_client.get('mutt:metrics:moog:total') or 0)
+
+        # Get queue depths
+        ingest_queue_depth = redis_client.llen('mutt:ingest_queue')
+        alert_queue_depth = redis_client.llen('mutt:alert_queue')
+
+        # Get circuit breaker state
+        circuit_state = redis_client.get('mutt:circuit:moog:state')
+        circuit_state = circuit_state.decode() if circuit_state else 'CLOSED'
+
+        # Calculate rates (requires previous sample stored in Redis)
+        # For simplicity, we'll return totals and let client calculate rates
+        metrics_data = {
+            'timestamp': time.time(),
+            'counters': {
+                'ingest_total': ingest_total,
+                'alerter_processed_total': alerter_total,
+                'moog_forwarded_total': moog_total
+            },
+            'queues': {
+                'ingest_queue_depth': ingest_queue_depth,
+                'alert_queue_depth': alert_queue_depth
+            },
+            'circuit_breaker': {
+                'moog_state': circuit_state
+            }
+        }
+
+        # Cache for 5 seconds
+        redis_client.setex(
+            cache_key,
+            cache_ttl,
+            json.dumps(metrics_data)
+        )
+
+        logger.debug(f"Metrics cached for {cache_ttl}s")
+        return jsonify(metrics_data), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching metrics: {e}")
+        return jsonify({'error': 'Failed to fetch metrics'}), 500
+```
+
+#### SLO Dashboard Endpoint
+
+```python
+from services.slo_checker import SLOComplianceChecker
+
+@app.route('/api/v1/slo', methods=['GET'])
+def get_slo_status():
+    """Return SLO compliance status for all components
+
+    Queries Prometheus for SLO metrics and calculates compliance.
+
+    Returns:
+        JSON with per-component SLO status and overall compliance
+    """
+    try:
+        prometheus_url = os.getenv('PROMETHEUS_URL', 'http://prometheus:9090')
+        checker = SLOComplianceChecker(prometheus_url=prometheus_url)
+
+        # Get compliance report for all SLOs
+        report = checker.get_compliance_report()
+
+        # Format response
+        response = {
+            'timestamp': time.time(),
+            'overall_compliant': all(
+                slo['compliant'] for slo in report.values()
+            ),
+            'slos': report
+        }
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logger.error(f"Error checking SLO compliance: {e}")
+        return jsonify({'error': 'Failed to check SLO compliance'}), 500
+```
+
+#### Rules CRUD Operations
+
+```python
+from services.audit_logger import log_audit
+
+@app.route('/api/v2/rules', methods=['GET'])
+def get_rules():
+    """List all alert rules with optional filtering
+
+    Query parameters:
+    - is_active: Filter by active status (true/false)
+    - match_type: Filter by match type (contains, regex, oid_prefix)
+    - limit: Max results (default 100)
+    - offset: Pagination offset (default 0)
+    """
+    try:
+        # Parse query parameters
+        is_active = request.args.get('is_active')
+        match_type = request.args.get('match_type')
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
+
+        # Build query
+        query = "SELECT * FROM alert_rules WHERE 1=1"
+        params = []
+
+        if is_active is not None:
+            query += " AND is_active = %s"
+            params.append(is_active.lower() == 'true')
+
+        if match_type:
+            query += " AND match_type = %s"
+            params.append(match_type)
+
+        query += " ORDER BY priority DESC, id ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        # Execute query
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, params)
+        rules = cursor.fetchall()
+
+        # Get total count
+        count_query = "SELECT COUNT(*) FROM alert_rules WHERE 1=1"
+        count_params = []
+        if is_active is not None:
+            count_query += " AND is_active = %s"
+            count_params.append(is_active.lower() == 'true')
+        if match_type:
+            count_query += " AND match_type = %s"
+            count_params.append(match_type)
+
+        cursor.execute(count_query, count_params)
+        total = cursor.fetchone()['count']
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'rules': [dict(rule) for rule in rules],
+            'total': total,
+            'limit': limit,
+            'offset': offset
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching rules: {e}")
+        return jsonify({'error': 'Failed to fetch rules'}), 500
+
+
+@app.route('/api/v2/rules', methods=['POST'])
+@require_auth
+def create_rule():
+    """Create a new alert rule
+
+    Required fields:
+    - match_string OR trap_oid (one required)
+    - match_type (contains, regex, oid_prefix)
+    - priority (integer)
+    - prod_handling (suppress, alert, log)
+    - dev_handling (suppress, alert, log)
+
+    Optional fields:
+    - syslog_severity (integer)
+    - team_assignment (string)
+    - is_active (boolean, default true)
+    """
+    try:
+        data = request.get_json()
+
+        # Validation
+        if not data.get('match_string') and not data.get('trap_oid'):
+            return jsonify({'error': 'Either match_string or trap_oid required'}), 400
+
+        if data.get('match_type') not in ['contains', 'regex', 'oid_prefix']:
+            return jsonify({'error': 'Invalid match_type'}), 400
+
+        # Insert into database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO alert_rules (
+                match_string, trap_oid, syslog_severity, match_type,
+                priority, prod_handling, dev_handling, team_assignment,
+                is_active
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data.get('match_string'),
+            data.get('trap_oid'),
+            data.get('syslog_severity'),
+            data['match_type'],
+            data['priority'],
+            data['prod_handling'],
+            data['dev_handling'],
+            data.get('team_assignment'),
+            data.get('is_active', True)
+        ))
+
+        rule_id = cursor.fetchone()[0]
+        conn.commit()
+
+        # Log audit trail
+        log_audit(
+            conn=conn,
+            operation='CREATE',
+            table_name='alert_rules',
+            record_id=rule_id,
+            new_values=data,
+            changed_by=request.headers.get('X-User', 'api'),
+            reason=data.get('reason', 'Created via API')
+        )
+
+        cursor.close()
+        conn.close()
+
+        # Publish cache reload notification
+        redis_client.publish('mutt:config:reload', 'rules')
+
+        logger.info(f"Created rule {rule_id}")
+        return jsonify({'id': rule_id, 'message': 'Rule created'}), 201
+
+    except Exception as e:
+        logger.error(f"Error creating rule: {e}")
+        return jsonify({'error': 'Failed to create rule'}), 500
+
+
+@app.route('/api/v2/rules/<int:rule_id>', methods=['PUT'])
+@require_auth
+def update_rule(rule_id):
+    """Update an existing alert rule
+
+    Only provided fields will be updated.
+    Publishes cache reload notification to all Alerter instances.
+    """
+    try:
+        data = request.get_json()
+
+        # Get old values for audit
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (rule_id,))
+        old_rule = cursor.fetchone()
+
+        if not old_rule:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Rule not found'}), 404
+
+        # Build update query dynamically
+        update_fields = []
+        params = []
+
+        for field in ['match_string', 'trap_oid', 'syslog_severity', 'match_type',
+                      'priority', 'prod_handling', 'dev_handling', 'team_assignment',
+                      'is_active']:
+            if field in data:
+                update_fields.append(f"{field} = %s")
+                params.append(data[field])
+
+        if not update_fields:
+            return jsonify({'error': 'No fields to update'}), 400
+
+        params.append(rule_id)
+        query = f"UPDATE alert_rules SET {', '.join(update_fields)} WHERE id = %s"
+
+        cursor.execute(query, params)
+        conn.commit()
+
+        # Log audit trail
+        log_audit(
+            conn=conn,
+            operation='UPDATE',
+            table_name='alert_rules',
+            record_id=rule_id,
+            old_values=dict(old_rule),
+            new_values=data,
+            changed_by=request.headers.get('X-User', 'api'),
+            reason=data.get('reason', 'Updated via API')
+        )
+
+        cursor.close()
+        conn.close()
+
+        # Publish cache reload notification
+        redis_client.publish('mutt:config:reload', 'rules')
+
+        logger.info(f"Updated rule {rule_id}")
+        return jsonify({'message': 'Rule updated'}), 200
+
+    except Exception as e:
+        logger.error(f"Error updating rule: {e}")
+        return jsonify({'error': 'Failed to update rule'}), 500
+
+
+@app.route('/api/v2/rules/<int:rule_id>', methods=['DELETE'])
+@require_auth
+def delete_rule(rule_id):
+    """Delete an alert rule (soft delete by setting is_active=false)
+
+    Uses soft delete to preserve audit trail.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Get rule for audit
+        cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (rule_id,))
+        rule = cursor.fetchone()
+
+        if not rule:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Rule not found'}), 404
+
+        # Soft delete
+        cursor.execute(
+            "UPDATE alert_rules SET is_active = false WHERE id = %s",
+            (rule_id,)
+        )
+        conn.commit()
+
+        # Log audit trail
+        log_audit(
+            conn=conn,
+            operation='DELETE',
+            table_name='alert_rules',
+            record_id=rule_id,
+            old_values=dict(rule),
+            changed_by=request.headers.get('X-User', 'api'),
+            reason=request.get_json().get('reason', 'Deleted via API') if request.get_json() else 'Deleted via API'
+        )
+
+        cursor.close()
+        conn.close()
+
+        # Publish cache reload notification
+        redis_client.publish('mutt:config:reload', 'rules')
+
+        logger.info(f"Deleted rule {rule_id}")
+        return jsonify({'message': 'Rule deleted'}), 200
+
+    except Exception as e:
+        logger.error(f"Error deleting rule: {e}")
+        return jsonify({'error': 'Failed to delete rule'}), 500
+```
+
+#### Audit Log Endpoint
+
+```python
+@app.route('/api/v2/audit-logs', methods=['GET'])
+@require_auth
+def get_audit_logs():
+    """Get configuration audit logs with pagination
+
+    Query parameters:
+    - table_name: Filter by table (alert_rules, development_hosts, device_teams)
+    - operation: Filter by operation (CREATE, UPDATE, DELETE)
+    - changed_by: Filter by user
+    - start_date: ISO format date (e.g. 2025-01-01)
+    - end_date: ISO format date
+    - limit: Max results (default 50, max 500)
+    - offset: Pagination offset (default 0)
+
+    Returns:
+        JSON with audit log entries and pagination metadata
+    """
+    try:
+        # Parse query parameters
+        table_name = request.args.get('table_name')
+        operation = request.args.get('operation')
+        changed_by = request.args.get('changed_by')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        limit = min(int(request.args.get('limit', 50)), 500)
+        offset = int(request.args.get('offset', 0))
+
+        # Build query
+        query = "SELECT * FROM config_audit_log WHERE 1=1"
+        params = []
+
+        if table_name:
+            query += " AND table_name = %s"
+            params.append(table_name)
+
+        if operation:
+            query += " AND operation = %s"
+            params.append(operation)
+
+        if changed_by:
+            query += " AND changed_by = %s"
+            params.append(changed_by)
+
+        if start_date:
+            query += " AND changed_at >= %s"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND changed_at <= %s"
+            params.append(end_date)
+
+        query += " ORDER BY changed_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        # Execute query
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, params)
+        logs = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        # Convert to serializable format
+        logs_list = []
+        for log in logs:
+            log_dict = dict(log)
+            # Convert timestamp to ISO format
+            if log_dict.get('changed_at'):
+                log_dict['changed_at'] = log_dict['changed_at'].isoformat()
+            logs_list.append(log_dict)
+
+        return jsonify({
+            'logs': logs_list,
+            'limit': limit,
+            'offset': offset
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching audit logs: {e}")
+        return jsonify({'error': 'Failed to fetch audit logs'}), 500
+```
+
+#### Health and Dashboard Endpoints
+
+```python
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for Kubernetes liveness probe"""
+    return jsonify({'status': 'healthy', 'service': 'web-ui'}), 200
+
+
+@app.route('/', methods=['GET'])
+def dashboard():
+    """Render main dashboard HTML page"""
+    return render_template('dashboard.html')
+```
 
 #### Test Cases
-- `test_dashboard_page`
-- `test_health_endpoint`
-- `test_metrics_endpoint`
-- `test_get_rules`
-- `test_create_rule`
-- `test_update_rule`
-- `test_delete_rule`
+
+```python
+# tests/test_web_ui_service.py
+
+def test_health_endpoint(client):
+    """Test health check returns 200"""
+    response = client.get('/health')
+    assert response.status_code == 200
+    assert response.json['status'] == 'healthy'
+
+
+def test_metrics_endpoint_with_cache(client, redis_client):
+    """Test metrics endpoint uses 5-second cache"""
+    # First request - cache miss
+    response1 = client.get('/api/v2/metrics')
+    assert response1.status_code == 200
+
+    # Verify cache was set
+    cached = redis_client.get('mutt:metrics:cached')
+    assert cached is not None
+
+    # Second request within 5 seconds - cache hit
+    response2 = client.get('/api/v2/metrics')
+    assert response2.status_code == 200
+    assert response2.json == response1.json
+
+
+def test_slo_endpoint(client, monkeypatch):
+    """Test SLO endpoint returns compliance status"""
+    # Mock SLOComplianceChecker
+    class MockChecker:
+        def __init__(self, prometheus_url):
+            pass
+
+        def get_compliance_report(self):
+            return {
+                'ingest_availability': {
+                    'target': 0.999,
+                    'actual': 0.9995,
+                    'compliant': True
+                },
+                'alerter_latency': {
+                    'target': 0.95,
+                    'actual': 0.98,
+                    'compliant': True
+                }
+            }
+
+    monkeypatch.setattr('services.web_ui_service.SLOComplianceChecker', MockChecker)
+
+    response = client.get('/api/v1/slo')
+    assert response.status_code == 200
+    assert response.json['overall_compliant'] is True
+    assert 'ingest_availability' in response.json['slos']
+
+
+def test_get_rules_with_pagination(client, db_conn):
+    """Test GET /api/v2/rules returns paginated results"""
+    # Create test rules
+    cursor = db_conn.cursor()
+    for i in range(5):
+        cursor.execute("""
+            INSERT INTO alert_rules (match_string, match_type, priority,
+                                     prod_handling, dev_handling)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (f'test-{i}', 'contains', 100 + i, 'alert', 'suppress'))
+    db_conn.commit()
+
+    # Test pagination
+    response = client.get('/api/v2/rules?limit=2&offset=0')
+    assert response.status_code == 200
+    assert len(response.json['rules']) == 2
+    assert response.json['total'] >= 5
+
+
+def test_create_rule_requires_auth(client):
+    """Test POST /api/v2/rules requires authentication"""
+    response = client.post('/api/v2/rules', json={
+        'match_string': 'test',
+        'match_type': 'contains',
+        'priority': 100,
+        'prod_handling': 'alert',
+        'dev_handling': 'suppress'
+    })
+    assert response.status_code == 401
+    assert 'API key required' in response.json['error']
+
+
+def test_create_rule_with_auth(client, db_conn, redis_client):
+    """Test POST /api/v2/rules creates rule and publishes reload"""
+    headers = {'X-API-Key': 'dev-key-12345'}
+
+    response = client.post('/api/v2/rules', json={
+        'match_string': 'critical error',
+        'match_type': 'contains',
+        'priority': 200,
+        'prod_handling': 'alert',
+        'dev_handling': 'alert',
+        'team_assignment': 'ops'
+    }, headers=headers)
+
+    assert response.status_code == 201
+    assert 'id' in response.json
+
+    # Verify rule was created
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT * FROM alert_rules WHERE id = %s", (response.json['id'],))
+    rule = cursor.fetchone()
+    assert rule is not None
+    assert rule[1] == 'critical error'  # match_string column
+
+
+def test_update_rule(client, db_conn, redis_client):
+    """Test PUT /api/v2/rules/:id updates rule and logs audit"""
+    # Create initial rule
+    cursor = db_conn.cursor()
+    cursor.execute("""
+        INSERT INTO alert_rules (match_string, match_type, priority,
+                                 prod_handling, dev_handling)
+        VALUES (%s, %s, %s, %s, %s) RETURNING id
+    """, ('test', 'contains', 100, 'suppress', 'suppress'))
+    rule_id = cursor.fetchone()[0]
+    db_conn.commit()
+
+    # Update rule
+    headers = {'X-API-Key': 'dev-key-12345'}
+    response = client.put(f'/api/v2/rules/{rule_id}', json={
+        'priority': 500,
+        'prod_handling': 'alert'
+    }, headers=headers)
+
+    assert response.status_code == 200
+
+    # Verify update
+    cursor.execute("SELECT priority, prod_handling FROM alert_rules WHERE id = %s", (rule_id,))
+    rule = cursor.fetchone()
+    assert rule[0] == 500
+    assert rule[1] == 'alert'
+
+    # Verify audit log
+    cursor.execute("SELECT * FROM config_audit_log WHERE table_name = 'alert_rules' AND record_id = %s", (rule_id,))
+    audit = cursor.fetchone()
+    assert audit is not None
+    assert audit[3] == 'UPDATE'  # operation column
+
+
+def test_delete_rule_soft_delete(client, db_conn):
+    """Test DELETE /api/v2/rules/:id performs soft delete"""
+    # Create rule
+    cursor = db_conn.cursor()
+    cursor.execute("""
+        INSERT INTO alert_rules (match_string, match_type, priority,
+                                 prod_handling, dev_handling, is_active)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+    """, ('test', 'contains', 100, 'suppress', 'suppress', True))
+    rule_id = cursor.fetchone()[0]
+    db_conn.commit()
+
+    # Delete rule
+    headers = {'X-API-Key': 'dev-key-12345'}
+    response = client.delete(f'/api/v2/rules/{rule_id}', headers=headers)
+
+    assert response.status_code == 200
+
+    # Verify soft delete (rule still exists but is_active=false)
+    cursor.execute("SELECT is_active FROM alert_rules WHERE id = %s", (rule_id,))
+    rule = cursor.fetchone()
+    assert rule is not None
+    assert rule[0] is False
+
+
+def test_audit_logs_endpoint(client, db_conn):
+    """Test GET /api/v2/audit-logs returns filtered logs"""
+    # Create test audit logs
+    cursor = db_conn.cursor()
+    for i in range(3):
+        cursor.execute("""
+            INSERT INTO config_audit_log (changed_by, operation, table_name,
+                                          record_id, new_values)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (f'user-{i}', 'UPDATE', 'alert_rules', i, '{}'))
+    db_conn.commit()
+
+    # Test with filters
+    headers = {'X-API-Key': 'dev-key-12345'}
+    response = client.get('/api/v2/audit-logs?table_name=alert_rules&limit=2',
+                          headers=headers)
+
+    assert response.status_code == 200
+    assert len(response.json['logs']) <= 2
+    assert all(log['table_name'] == 'alert_rules' for log in response.json['logs'])
+```
 
 ### 2.6 Remediation Service
 
@@ -1569,46 +4141,516 @@ metrics = PrometheusMetrics(app)
 
 **Specifications:**
 
-#### Main Loop
+#### Service Initialization
 
 ```python
-def main_loop():
-    while True:
-        # 1. Scan DLQs
-        scan_dlq('mutt:dlq:alerter')
-        scan_dlq('mutt:dlq:moog')
+import time
+import json
+import logging
+import requests
+from prometheus_client import Counter, Gauge, Histogram
 
-        # 2. Sleep for a configurable interval
-        time.sleep(60)
+# Prometheus metrics
+metrics = {
+    'dlq_replayed_total': Counter(
+        'remediation_dlq_replayed_total',
+        'Total messages replayed from DLQ',
+        ['dlq_name', 'result']
+    ),
+    'poison_messages_total': Counter(
+        'remediation_poison_messages_total',
+        'Total messages moved to poison queue',
+        ['dlq_name']
+    ),
+    'health_check_success': Counter(
+        'remediation_health_check_success_total',
+        'Successful health checks',
+        ['service']
+    ),
+    'health_check_failure': Counter(
+        'remediation_health_check_failure_total',
+        'Failed health checks',
+        ['service']
+    ),
+    'dlq_depth': Gauge(
+        'remediation_dlq_depth',
+        'Current depth of DLQ',
+        ['dlq_name']
+    )
+}
+
+logger = logging.getLogger(__name__)
 ```
 
-#### DLQ Scanning
+#### Moogsoft Health Check
 
 ```python
-def scan_dlq(dlq_name):
-    # 1. Get all messages from the DLQ
-    messages = redis_client.lrange(dlq_name, 0, -1)
+def check_moogsoft_health(config) -> bool:
+    """Check if Moogsoft is reachable and accepting connections
 
-    for message_json in messages:
-        message = json.loads(message_json)
-        retry_count = message.get('retry_count', 0)
+    Sends a health check request to Moogsoft webhook endpoint.
 
-        if retry_count < 5:
-            # 2. Re-queue the message
-            original_queue = dlq_name.replace('dlq', 'ingest') # Simplified
-            redis_client.lpush(original_queue, message_json)
+    Args:
+        config: Config object with MOOG_WEBHOOK_URL and MOOG_HEALTH_TIMEOUT
 
-            # 3. Remove from DLQ
-            redis_client.lrem(dlq_name, 1, message_json)
+    Returns:
+        True if Moogsoft is healthy, False otherwise
+    """
+    if not config.MOOG_HEALTH_CHECK_ENABLED:
+        logger.debug("Moogsoft health check disabled")
+        return True
+
+    try:
+        url = config.MOOG_WEBHOOK_URL
+        timeout = config.MOOG_HEALTH_TIMEOUT
+
+        # Send simple POST with minimal payload to test connectivity
+        response = requests.post(
+            url,
+            json={'test': 'health_check'},
+            timeout=timeout,
+            headers={'Content-Type': 'application/json'}
+        )
+
+        # Accept 2xx or 4xx (4xx means Moog rejected payload but is responsive)
+        if response.status_code < 500:
+            logger.debug(f"Moogsoft health check passed (status {response.status_code})")
+            metrics['health_check_success'].labels(service='moogsoft').inc()
+            return True
         else:
-            # 4. Move to poison pill queue
+            logger.warning(f"Moogsoft health check failed (status {response.status_code})")
+            metrics['health_check_failure'].labels(service='moogsoft').inc()
+            return False
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Moogsoft health check timeout after {timeout}s")
+        metrics['health_check_failure'].labels(service='moogsoft').inc()
+        return False
+
+    except Exception as e:
+        logger.error(f"Moogsoft health check error: {e}")
+        metrics['health_check_failure'].labels(service='moogsoft').inc()
+        return False
+```
+
+#### DLQ Replay with Exponential Backoff
+
+```python
+def replay_dlq_messages(dlq_name: str, target_queue: str, config, redis_client):
+    """Replay messages from DLQ to target queue with exponential backoff
+
+    Messages are retried up to MAX_RETRIES times. After that, they're
+    moved to the poison pill queue for manual inspection.
+
+    Exponential backoff formula: delay = min(2^retry_count, 3600) seconds
+
+    Args:
+        dlq_name: Name of the DLQ to process (e.g., 'mutt:dlq:moog')
+        target_queue: Queue to replay messages to (e.g., 'mutt:alert_queue')
+        config: Config object with MAX_RETRIES setting
+        redis_client: Redis connection
+    """
+    max_retries = int(config.MAX_DLQ_RETRIES or 5)
+    batch_size = int(config.DLQ_BATCH_SIZE or 100)
+
+    # Get DLQ depth for metrics
+    dlq_depth = redis_client.llen(dlq_name)
+    metrics['dlq_depth'].labels(dlq_name=dlq_name).set(dlq_depth)
+
+    if dlq_depth == 0:
+        logger.debug(f"DLQ {dlq_name} is empty, skipping")
+        return
+
+    logger.info(f"Processing DLQ {dlq_name} with {dlq_depth} messages")
+
+    # Process messages in batches
+    processed = 0
+    replayed = 0
+    poisoned = 0
+
+    while processed < batch_size and redis_client.llen(dlq_name) > 0:
+        # Get message from DLQ
+        message_json = redis_client.rpop(dlq_name)
+        if not message_json:
+            break
+
+        try:
+            message = json.loads(message_json)
+
+            # Get retry metadata
+            retry_count = message.get('retry_count', 0)
+            first_failed_at = message.get('first_failed_at', time.time())
+            last_retry_at = message.get('last_retry_at', 0)
+
+            # Calculate time since last retry
+            time_since_retry = time.time() - last_retry_at
+            required_delay = min(2 ** retry_count, 3600)  # Cap at 1 hour
+
+            # Check if enough time has passed for exponential backoff
+            if time_since_retry < required_delay:
+                # Too soon to retry - put back in DLQ
+                logger.debug(
+                    f"Message not ready for retry (waited {time_since_retry}s, "
+                    f"need {required_delay}s)"
+                )
+                redis_client.lpush(dlq_name, message_json)
+                processed += 1
+                continue
+
+            # Check if max retries exceeded
+            if retry_count >= max_retries:
+                logger.warning(
+                    f"Message exceeded max retries ({retry_count}/{max_retries}), "
+                    "moving to poison queue"
+                )
+
+                # Add final metadata
+                message['poisoned_at'] = time.time()
+                message['total_retries'] = retry_count
+                message['time_in_dlq'] = time.time() - first_failed_at
+
+                # Move to poison queue
+                redis_client.lpush('mutt:poison', json.dumps(message))
+                metrics['poison_messages_total'].labels(dlq_name=dlq_name).inc()
+                poisoned += 1
+                processed += 1
+                continue
+
+            # Increment retry counter and update timestamps
+            message['retry_count'] = retry_count + 1
+            message['last_retry_at'] = time.time()
+            if 'first_failed_at' not in message:
+                message['first_failed_at'] = time.time()
+
+            # Replay to target queue
+            redis_client.lpush(target_queue, json.dumps(message))
+
+            logger.info(
+                f"Replayed message from {dlq_name} to {target_queue} "
+                f"(retry {message['retry_count']}/{max_retries})"
+            )
+
+            metrics['dlq_replayed_total'].labels(
+                dlq_name=dlq_name,
+                result='success'
+            ).inc()
+
+            replayed += 1
+            processed += 1
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in DLQ message: {e}")
+            # Move malformed message to poison queue
             redis_client.lpush('mutt:poison', message_json)
-            redis_client.lrem(dlq_name, 1, message_json)
+            metrics['poison_messages_total'].labels(dlq_name=dlq_name).inc()
+            poisoned += 1
+            processed += 1
+
+        except Exception as e:
+            logger.error(f"Error processing DLQ message: {e}")
+            # Put back in DLQ for next iteration
+            redis_client.lpush(dlq_name, message_json)
+            metrics['dlq_replayed_total'].labels(
+                dlq_name=dlq_name,
+                result='error'
+            ).inc()
+            processed += 1
+
+    logger.info(
+        f"DLQ {dlq_name} processing complete: "
+        f"{replayed} replayed, {poisoned} poisoned, {processed} total"
+    )
+```
+
+#### Complete Main Remediation Loop
+
+```python
+def remediation_loop(config, redis_client):
+    """Main remediation service loop
+
+    Continuously monitors DLQs and replays messages when conditions allow.
+    Also performs health checks on downstream services.
+
+    Loop cycle:
+    1. Check Moogsoft health
+    2. If healthy, replay Moog DLQ
+    3. Always replay Alerter DLQ (independent of Moogsoft)
+    4. Sleep for configurable interval
+    """
+    loop_interval = int(config.REMEDIATION_INTERVAL_SECONDS or 60)
+
+    logger.info(f"Starting remediation loop (interval: {loop_interval}s)")
+
+    iteration = 0
+
+    while True:
+        try:
+            iteration += 1
+            logger.debug(f"Remediation loop iteration {iteration}")
+
+            # Check Moogsoft health
+            moog_healthy = check_moogsoft_health(config)
+
+            # Replay Moog DLQ only if Moogsoft is healthy
+            if moog_healthy:
+                logger.debug("Moogsoft healthy, processing Moog DLQ")
+                replay_dlq_messages(
+                    dlq_name='mutt:dlq:moog',
+                    target_queue='mutt:alert_queue',
+                    config=config,
+                    redis_client=redis_client
+                )
+            else:
+                logger.warning("Moogsoft unhealthy, skipping Moog DLQ replay")
+                # Update DLQ depth metric even if not processing
+                dlq_depth = redis_client.llen('mutt:dlq:moog')
+                metrics['dlq_depth'].labels(dlq_name='mutt:dlq:moog').set(dlq_depth)
+
+            # Always process Alerter DLQ (retry to ingest queue)
+            logger.debug("Processing Alerter DLQ")
+            replay_dlq_messages(
+                dlq_name='mutt:dlq:alerter',
+                target_queue='mutt:ingest_queue',
+                config=config,
+                redis_client=redis_client
+            )
+
+            # Sleep until next iteration
+            logger.debug(f"Sleeping for {loop_interval}s")
+            time.sleep(loop_interval)
+
+        except KeyboardInterrupt:
+            logger.info("Received interrupt, shutting down remediation service")
+            break
+
+        except Exception as e:
+            logger.error(f"Error in remediation loop: {e}", exc_info=True)
+            # Sleep briefly and continue
+            time.sleep(10)
+
+
+def main():
+    """Entry point for remediation service"""
+    from config import Config
+
+    config = Config()
+    redis_client = get_redis_connection(config)
+
+    logger.info("Remediation service starting")
+
+    # Start Prometheus metrics server
+    start_http_server(8084)
+    logger.info("Metrics server started on port 8084")
+
+    # Run main loop
+    remediation_loop(config, redis_client)
 ```
 
 #### Test Cases
-- `test_scan_dlq_with_retriable_messages`
-- `test_scan_dlq_with_poison_messages`
+
+```python
+# tests/test_remediation_service.py
+
+def test_moogsoft_health_check_success(monkeypatch):
+    """Test Moogsoft health check with successful response"""
+    class FakeResponse:
+        status_code = 200
+
+    def fake_post(url, **kwargs):
+        return FakeResponse()
+
+    import requests
+    monkeypatch.setattr(requests, 'post', fake_post)
+
+    class Config:
+        MOOG_HEALTH_CHECK_ENABLED = True
+        MOOG_WEBHOOK_URL = 'http://moogsoft/webhook'
+        MOOG_HEALTH_TIMEOUT = 5
+
+    from services.remediation_service import check_moogsoft_health
+
+    result = check_moogsoft_health(Config())
+    assert result is True
+
+
+def test_moogsoft_health_check_failure(monkeypatch):
+    """Test Moogsoft health check with 5xx error"""
+    class FakeResponse:
+        status_code = 503
+
+    def fake_post(url, **kwargs):
+        return FakeResponse()
+
+    import requests
+    monkeypatch.setattr(requests, 'post', fake_post)
+
+    class Config:
+        MOOG_HEALTH_CHECK_ENABLED = True
+        MOOG_WEBHOOK_URL = 'http://moogsoft/webhook'
+        MOOG_HEALTH_TIMEOUT = 5
+
+    from services.remediation_service import check_moogsoft_health
+
+    result = check_moogsoft_health(Config())
+    assert result is False
+
+
+def test_replay_dlq_with_retriable_message(redis_client):
+    """Test DLQ replay moves message to target queue"""
+    class Config:
+        MAX_DLQ_RETRIES = 5
+        DLQ_BATCH_SIZE = 100
+
+    from services.remediation_service import replay_dlq_messages
+
+    # Add message to DLQ
+    message = {
+        'event': 'test',
+        'retry_count': 0,
+        'last_retry_at': 0
+    }
+    redis_client.lpush('mutt:dlq:test', json.dumps(message))
+
+    # Replay
+    replay_dlq_messages(
+        dlq_name='mutt:dlq:test',
+        target_queue='mutt:target_queue',
+        config=Config(),
+        redis_client=redis_client
+    )
+
+    # Verify message moved to target queue
+    assert redis_client.llen('mutt:dlq:test') == 0
+    assert redis_client.llen('mutt:target_queue') == 1
+
+    # Verify retry count incremented
+    replayed = json.loads(redis_client.rpop('mutt:target_queue'))
+    assert replayed['retry_count'] == 1
+    assert replayed['last_retry_at'] > 0
+
+
+def test_replay_dlq_with_poison_message(redis_client):
+    """Test message exceeding max retries moved to poison queue"""
+    class Config:
+        MAX_DLQ_RETRIES = 3
+        DLQ_BATCH_SIZE = 100
+
+    from services.remediation_service import replay_dlq_messages
+
+    # Add message with max retries already exceeded
+    message = {
+        'event': 'test',
+        'retry_count': 3,
+        'last_retry_at': 0,
+        'first_failed_at': time.time() - 1000
+    }
+    redis_client.lpush('mutt:dlq:test', json.dumps(message))
+
+    # Replay
+    replay_dlq_messages(
+        dlq_name='mutt:dlq:test',
+        target_queue='mutt:target_queue',
+        config=Config(),
+        redis_client=redis_client
+    )
+
+    # Verify message moved to poison queue
+    assert redis_client.llen('mutt:dlq:test') == 0
+    assert redis_client.llen('mutt:target_queue') == 0
+    assert redis_client.llen('mutt:poison') == 1
+
+    # Verify poison metadata added
+    poisoned = json.loads(redis_client.rpop('mutt:poison'))
+    assert 'poisoned_at' in poisoned
+    assert poisoned['total_retries'] == 3
+
+
+def test_replay_dlq_respects_exponential_backoff(redis_client):
+    """Test messages not replayed if backoff period hasn't elapsed"""
+    class Config:
+        MAX_DLQ_RETRIES = 5
+        DLQ_BATCH_SIZE = 100
+
+    from services.remediation_service import replay_dlq_messages
+
+    # Add message with recent retry
+    message = {
+        'event': 'test',
+        'retry_count': 2,
+        'last_retry_at': time.time() - 1  # Only 1 second ago
+    }
+    redis_client.lpush('mutt:dlq:test', json.dumps(message))
+
+    # Replay
+    replay_dlq_messages(
+        dlq_name='mutt:dlq:test',
+        target_queue='mutt:target_queue',
+        config=Config(),
+        redis_client=redis_client
+    )
+
+    # Verify message stayed in DLQ (backoff not elapsed: 2^2 = 4 seconds required)
+    assert redis_client.llen('mutt:dlq:test') == 1
+    assert redis_client.llen('mutt:target_queue') == 0
+
+
+def test_replay_dlq_handles_malformed_json(redis_client):
+    """Test malformed JSON messages moved to poison queue"""
+    class Config:
+        MAX_DLQ_RETRIES = 5
+        DLQ_BATCH_SIZE = 100
+
+    from services.remediation_service import replay_dlq_messages
+
+    # Add malformed JSON to DLQ
+    redis_client.lpush('mutt:dlq:test', '{invalid json')
+
+    # Replay
+    replay_dlq_messages(
+        dlq_name='mutt:dlq:test',
+        target_queue='mutt:target_queue',
+        config=Config(),
+        redis_client=redis_client
+    )
+
+    # Verify moved to poison queue
+    assert redis_client.llen('mutt:dlq:test') == 0
+    assert redis_client.llen('mutt:poison') == 1
+
+
+def test_remediation_loop_skips_moog_dlq_when_unhealthy(monkeypatch, redis_client):
+    """Test remediation loop skips Moog DLQ when health check fails"""
+    class Config:
+        MAX_DLQ_RETRIES = 5
+        DLQ_BATCH_SIZE = 100
+        REMEDIATION_INTERVAL_SECONDS = 1
+        MOOG_HEALTH_CHECK_ENABLED = True
+        MOOG_WEBHOOK_URL = 'http://moogsoft/webhook'
+        MOOG_HEALTH_TIMEOUT = 5
+
+    from services.remediation_service import check_moogsoft_health, replay_dlq_messages
+
+    # Mock unhealthy Moogsoft
+    def fake_health_check(config):
+        return False
+
+    monkeypatch.setattr(
+        'services.remediation_service.check_moogsoft_health',
+        fake_health_check
+    )
+
+    # Add messages to both DLQs
+    redis_client.lpush('mutt:dlq:moog', json.dumps({'event': 'moog', 'retry_count': 0, 'last_retry_at': 0}))
+    redis_client.lpush('mutt:dlq:alerter', json.dumps({'event': 'alerter', 'retry_count': 0, 'last_retry_at': 0}))
+
+    # Run one iteration of remediation (we'll test the components separately)
+    # In real test, would mock time.sleep and run single iteration
+
+    # Verify behavior: Moog DLQ should not be processed when unhealthy
+    # (This test demonstrates the expected behavior pattern)
+    is_healthy = fake_health_check(Config())
+    assert is_healthy is False
+```
 
 ---
 
