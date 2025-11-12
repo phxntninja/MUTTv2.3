@@ -19,7 +19,7 @@ pytest-flake8==1.1.1       # Linting during tests
 pytest-pylint==0.21.0      # Code quality checks
 
 # Performance testing (optional)
-pytest-benchmark==4.0.0    # Performance benchmarking
+pytest-benchmark==5.2.3    # Performance benchmarking
 
 # Test reporting
 pytest-html==4.1.1         # HTML test reports
