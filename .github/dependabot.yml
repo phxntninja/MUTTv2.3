@@ -3,12 +3,34 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"  # Changed from weekly to reduce noise
     open-pull-requests-limit: 5
     labels: ["deps", "python"]
+    ignore:
+      # Redis locked to 5.0.1 for RHEL 8 compatibility
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Pytest major versions need manual testing
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-major"]
+    groups:
+      test-dependencies:
+        patterns:
+          - "pytest*"
+          - "coverage"
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"  # Changed from weekly to reduce noise
     open-pull-requests-limit: 5
     labels: ["deps", "ci"]
+    groups:
+      github-actions:
+        patterns:
+          - "actions/*"
+          - "docker/*"
+          - "codecov/*"
