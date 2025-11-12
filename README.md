@@ -70,6 +70,29 @@ For more details on each component, see the [Components Overview](docs/code/MODU
 
 ---
 
+## 📁 Repository Structure
+
+```
+mutt-v2.5/
+├── services/           # Microservices (ingestor, alerter, moog-forwarder, webui, remediation)
+├── deployments/        # Deployment configurations
+│   ├── kubernetes/     # Kubernetes manifests
+│   ├── systemd/        # SystemD service files (RHEL/Ubuntu)
+│   └── scripts/        # Deployment scripts (deploy_rhel.sh, deploy_ubuntu.sh)
+├── docs/               # Comprehensive documentation
+├── tests/              # Test suite and test data
+├── database/           # Database schemas and migrations
+├── configs/            # Configuration files (Prometheus, Grafana)
+├── scripts/            # Utility scripts
+├── cli/                # muttdev CLI tool
+├── project/            # Project management (task tracker, status)
+└── archive/            # Historical documents and completed handoffs
+```
+
+See [docs/INDEX.md](docs/INDEX.md) for complete documentation index.
+
+---
+
 ## 📦 Requirements
 
 - **Python**: 3.8+
@@ -101,7 +124,17 @@ For a detailed API reference, see the [API_REFERENCE.md](docs/api/REFERENCE.md) 
 
 ## 🐳 Deployment
 
-For detailed deployment instructions, see the [DEPLOYMENT_ARCHITECTURE.md](docs/architecture/DEPLOYMENT_ARCHITECTURE.md) document.
+MUTT supports multiple deployment options:
+
+- **Docker Compose**: Quick development setup (see [QUICKSTART.md](QUICKSTART.md))
+- **Kubernetes**: Production deployment (see [deployments/kubernetes/](deployments/kubernetes/))
+- **SystemD (RHEL/Ubuntu)**: Bare metal deployment
+  - RHEL: `deployments/scripts/deploy_rhel.sh`
+  - Ubuntu: `deployments/scripts/deploy_ubuntu.sh`
+
+For comprehensive deployment instructions, see:
+- [docs/REBUILD_GUIDE.md](docs/REBUILD_GUIDE.md) - Complete rebuild documentation
+- [docs/architecture/DEPLOYMENT_ARCHITECTURE.md](docs/architecture/DEPLOYMENT_ARCHITECTURE.md) - Architecture details
 
 ---
 

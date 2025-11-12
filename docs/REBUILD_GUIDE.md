@@ -5638,7 +5638,7 @@ This phase provides production-ready deployment configurations for multiple plat
 #### 5.1.1 Namespace and ConfigMap
 
 ```yaml
-# File: k8s/namespace.yaml
+# File: deployments/kubernetes/namespace.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -5648,7 +5648,7 @@ metadata:
     environment: production
 
 ---
-# File: k8s/configmap.yaml
+# File: deployments/kubernetes/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5696,7 +5696,7 @@ data:
 #### 5.1.2 Secrets Management
 
 ```yaml
-# File: k8s/secrets.yaml
+# File: deployments/kubernetes/secrets.yaml
 # NOTE: In production, use External Secrets Operator or Vault integration
 apiVersion: v1
 kind: Secret
@@ -5713,7 +5713,7 @@ data:
   MUTT_API_KEY: ""  # API key for Web UI authentication
 
 ---
-# File: k8s/external-secret.yaml (if using External Secrets Operator)
+# File: deployments/kubernetes/external-secret.yaml (if using External Secrets Operator)
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
@@ -5747,7 +5747,7 @@ spec:
 **Ingestor Service:**
 
 ```yaml
-# File: k8s/ingestor-deployment.yaml
+# File: deployments/kubernetes/ingestor-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5873,7 +5873,7 @@ spec:
 **Alerter Service:**
 
 ```yaml
-# File: k8s/alerter-deployment.yaml
+# File: deployments/kubernetes/alerter-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5947,7 +5947,7 @@ spec:
 **Web UI Service:**
 
 ```yaml
-# File: k8s/webui-deployment.yaml
+# File: deployments/kubernetes/webui-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6044,7 +6044,7 @@ spec:
 #### 5.1.4 CronJobs for Maintenance
 
 ```yaml
-# File: k8s/partition-cronjob.yaml
+# File: deployments/kubernetes/partition-cronjob.yaml
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -6070,7 +6070,7 @@ spec:
           restartPolicy: OnFailure
 
 ---
-# File: k8s/retention-cronjob.yaml
+# File: deployments/kubernetes/retention-cronjob.yaml
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -6113,7 +6113,7 @@ Both platforms use SystemD for service management with identical service files. 
 **Ingestor Service:**
 
 ```ini
-# File: systemd/mutt-ingestor.service
+# File: deployments/systemd/mutt-ingestor.service
 [Unit]
 Description=MUTT Ingestor Service
 After=network.target redis.service postgresql.service
@@ -6161,7 +6161,7 @@ WantedBy=multi-user.target
 **Alerter Service:**
 
 ```ini
-# File: systemd/mutt-alerter@.service
+# File: deployments/systemd/mutt-alerter@.service
 # Template service for multiple alerter instances
 # Start with: systemctl start mutt-alerter@{1..5}.service
 
@@ -6211,7 +6211,7 @@ WantedBy=multi-user.target
 **Moog Forwarder Service:**
 
 ```ini
-# File: systemd/mutt-moog-forwarder.service
+# File: deployments/systemd/mutt-moog-forwarder.service
 [Unit]
 Description=MUTT Moog Forwarder Service
 After=network.target redis.service
@@ -6250,7 +6250,7 @@ WantedBy=multi-user.target
 **Web UI Service:**
 
 ```ini
-# File: systemd/mutt-webui.service
+# File: deployments/systemd/mutt-webui.service
 [Unit]
 Description=MUTT Web UI Service
 After=network.target redis.service postgresql.service
@@ -6296,7 +6296,7 @@ WantedBy=multi-user.target
 **Remediation Service:**
 
 ```ini
-# File: systemd/mutt-remediation.service
+# File: deployments/systemd/mutt-remediation.service
 [Unit]
 Description=MUTT Remediation Service
 After=network.target redis.service
@@ -6336,7 +6336,7 @@ WantedBy=multi-user.target
 
 ```bash
 #!/bin/bash
-# File: scripts/deploy_rhel.sh
+# File: deployments/scripts/deploy_rhel.sh
 # MUTT v2.5 RHEL Deployment Script
 
 set -e
@@ -6383,7 +6383,7 @@ fi
 
 # 6. Install systemd service files
 echo "Installing systemd services..."
-cp systemd/*.service /etc/systemd/system/
+cp deployments/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
 
 # 7. Enable and start services
@@ -6458,7 +6458,7 @@ python3.10 --version
 
 ```bash
 #!/bin/bash
-# File: scripts/deploy_ubuntu.sh
+# File: deployments/scripts/deploy_ubuntu.sh
 # MUTT v2.5 Ubuntu Deployment Script
 
 set -e
@@ -6516,7 +6516,7 @@ fi
 
 # 7. Install systemd service files
 echo "Installing systemd services..."
-sudo cp systemd/*.service /etc/systemd/system/
+sudo cp deployments/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # 8. Configure firewall (ufw)
@@ -7285,7 +7285,7 @@ Create all five service files in `/etc/systemd/system/`:
 
 ```bash
 # Copy service files (you should have these from Section 5.2.1)
-# sudo cp systemd/*.service /etc/systemd/system/
+# sudo cp deployments/systemd/*.service /etc/systemd/system/
 
 # Or create them manually:
 sudo cat > /etc/systemd/system/mutt-ingestor.service << 'EOF'

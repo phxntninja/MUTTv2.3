@@ -1,0 +1,43 @@
+# File: deployments/systemd/mutt-ingestor.service
+[Unit]
+Description=MUTT Ingestor Service
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+# Environment
+EnvironmentFile=/opt/mutt/.env
+
+# Service execution
+ExecStart=/opt/mutt/venv/bin/python -m services.ingestor_service
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-ingestor
+
+[Install]
+WantedBy=multi-user.target

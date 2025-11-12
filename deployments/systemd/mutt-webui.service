@@ -1,0 +1,41 @@
+# File: deployments/systemd/mutt-webui.service
+[Unit]
+Description=MUTT Web UI Service
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+EnvironmentFile=/opt/mutt/.env
+
+# Use Gunicorn for production
+ExecStart=/opt/mutt/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 0.0.0.0:8090 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    services.web_ui_service:app
+
+LimitNOFILE=65536
+MemoryMax=1G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-webui
+
+[Install]
+WantedBy=multi-user.target

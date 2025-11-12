@@ -1,0 +1,45 @@
+# File: deployments/systemd/mutt-alerter@.service
+# Template service for multiple alerter instances
+# Start with: systemctl start mutt-alerter@{1..5}.service
+
+[Unit]
+Description=MUTT Alerter Service (Instance %i)
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+# Environment
+EnvironmentFile=/opt/mutt/.env
+Environment="ALERTER_WORKER_ID=alerter-%i"
+
+# Service execution
+ExecStart=/opt/mutt/venv/bin/python -m services.alerter_service
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+CPUQuota=150%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-alerter-%i
+
+[Install]
+WantedBy=multi-user.target

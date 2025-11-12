@@ -1,0 +1,34 @@
+# File: deployments/systemd/mutt-remediation.service
+[Unit]
+Description=MUTT Remediation Service
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+EnvironmentFile=/opt/mutt/.env
+
+ExecStart=/opt/mutt/venv/bin/python -m services.remediation_service
+
+LimitNOFILE=65536
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-remediation
+
+[Install]
+WantedBy=multi-user.target
