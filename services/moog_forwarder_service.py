@@ -979,6 +979,9 @@ def _map_severity(severity_str: str) -> int:
           CircuitBreakerState.OPEN: 2
       }
 
+      # Track previous state for transition detection
+      previous_state = None
+
       while not stop_event.is_set():
           try:
               if circuit_breaker is not None:
@@ -992,6 +995,17 @@ def _map_severity(severity_str: str) -> int:
                   # Update failure count
                   failure_count = circuit_breaker.get_failure_count()
                   METRIC_CIRCUIT_BREAKER_FAILURES.labels(name="moogsoft").set(failure_count)
+
+                  # Track state transitions
+                  if previous_state is not None and previous_state != state:
+                      logger.info(f"Circuit breaker state transition: {previous_state} -> {state}")
+                      METRIC_CIRCUIT_BREAKER_STATE_CHANGES.labels(
+                          name="moogsoft",
+                          from_state=previous_state,
+                          to_state=state
+                      ).inc()
+
+                  previous_state = state
 
           except Exception as e:
               logger.error(f"Error updating circuit breaker metrics: {e}")
@@ -1029,6 +1043,9 @@ def _map_severity(severity_str: str) -> int:
 
       vault_client, secrets = fetch_secrets(config)
       redis_client = connect_to_redis(config, secrets)
+
+      # Initialize optional dynamic configuration
+      _init_dynamic_config_if_enabled(config, redis_client)
 
       # Phase 3A - Initialize circuit breaker
       circuit_breaker = None

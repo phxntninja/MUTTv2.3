@@ -74,7 +74,7 @@ spec:
 
             command:
             - python3
-            - /app/scripts/retention_cleanup.py
+            - /app/scripts/retention_policy_enforcer.py
 
             env:
             # Database connection

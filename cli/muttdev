@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""
+muttdev - MUTT Developer CLI
+
+A command-line tool for MUTT developers to streamline common development tasks.
+
+Commands:
+    setup   - Initialize local development environment
+    config  - Manage configuration and secrets
+    logs    - Stream and search service logs
+    status  - Show status of all MUTT services
+    test    - Run tests with various options
+    db      - Database management utilities
+
+Usage:
+    muttdev <command> [options]
+    muttdev --help
+    muttdev <command> --help
+
+Examples:
+    muttdev setup                    # Initialize dev environment
+    muttdev config get cache_reload_interval
+    muttdev logs alerter --follow    # Tail alerter logs
+    muttdev status                   # Show all service status
+    muttdev test --unit              # Run unit tests
+
+Author: MUTT Development Team
+License: MIT
+Version: 2.5.0
+"""
+
+import sys
+import argparse
+from typing import List, Optional
+
+# Add parent directory to path for imports
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Version
+VERSION = "2.5.0"
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create the main argument parser with subcommands."""
+    parser = argparse.ArgumentParser(
+        prog='muttdev',
+        description='MUTT Developer CLI - Streamline development tasks',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  muttdev setup                        Initialize development environment
+  muttdev config list                  List all configuration values
+  muttdev config get cache_reload_interval
+  muttdev config set cache_reload_interval 600
+  muttdev logs alerter --follow        Tail alerter service logs
+  muttdev logs --grep "ERROR"          Search logs for errors
+  muttdev status                       Show all service status
+  muttdev test --unit                  Run unit tests only
+  muttdev db shell                     Open PostgreSQL shell
+
+For more help on a specific command:
+  muttdev <command> --help
+        """
+    )
+
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'muttdev {VERSION}'
+    )
+
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(
+        title='commands',
+        description='Available muttdev commands',
+        dest='command',
+        help='Command to execute'
+    )
+
+    # Setup command
+    from cli.commands import cmd_setup
+    cmd_setup.register(subparsers)
+
+    # Config command
+    from cli.commands import cmd_config
+    cmd_config.register(subparsers)
+
+    # Logs command
+    from cli.commands import cmd_logs
+    cmd_logs.register(subparsers)
+
+    # Status command
+    from cli.commands import cmd_status
+    cmd_status.register(subparsers)
+
+    # Test command
+    from cli.commands import cmd_test
+    cmd_test.register(subparsers)
+
+    # DB command
+    from cli.commands import cmd_db
+    cmd_db.register(subparsers)
+
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point for muttdev CLI."""
+    parser = create_parser()
+    args = parser.parse_args(argv)
+
+    # If no command specified, show help
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    # Import and execute the command
+    try:
+        if args.command == 'setup':
+            from cli.commands import cmd_setup
+            return cmd_setup.execute(args)
+        elif args.command == 'config':
+            from cli.commands import cmd_config
+            return cmd_config.execute(args)
+        elif args.command == 'logs':
+            from cli.commands import cmd_logs
+            return cmd_logs.execute(args)
+        elif args.command == 'status':
+            from cli.commands import cmd_status
+            return cmd_status.execute(args)
+        elif args.command == 'test':
+            from cli.commands import cmd_test
+            return cmd_test.execute(args)
+        elif args.command == 'db':
+            from cli.commands import cmd_db
+            return cmd_db.execute(args)
+        else:
+            parser.print_help()
+            return 1
+
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        return 130
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
