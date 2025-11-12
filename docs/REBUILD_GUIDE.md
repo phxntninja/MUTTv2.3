@@ -5629,30 +5629,950 @@ def cleanup_postgres(db_name='mutt_test'):
 
 ## Phase 5: Deployment
 
-### 5.1 Docker Compose
+This phase provides production-ready deployment configurations for multiple platforms.
 
--   Create a `docker-compose.yml` file to define the services and their dependencies.
--   Use Docker Compose for local development and testing.
+### 5.1 Kubernetes Deployment
 
-### 5.2 Kubernetes
+**Target Environment**: Kubernetes 1.24+
 
--   Create Kubernetes manifests for each service (Deployment, Service, ConfigMap, etc.).
--   Use Helm to package and deploy the application to Kubernetes.
+#### 5.1.1 Namespace and ConfigMap
 
-### 5.3 RHEL
+```yaml
+# File: k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mutt
+  labels:
+    name: mutt
+    environment: production
 
--   Create systemd service files for each service.
--   Write a shell script to automate the deployment to RHEL.
+---
+# File: k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mutt-config
+  namespace: mutt
+data:
+  # Redis Configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "mutt"
+  POSTGRES_USER: "mutt_user"
+  POSTGRES_SSL_MODE: "require"
+
+  # Vault Configuration
+  VAULT_ADDR: "https://vault.example.com:8200"
+  VAULT_MOUNT_POINT: "mutt"
+  VAULT_SECRET_PATH: "mutt/prod/secrets"
+
+  # Moogsoft Configuration
+  MOOG_WEBHOOK_URL: "https://moogsoft.example.com/webhook"
+  MOOG_RATE_LIMIT_PER_SEC: "50"
+  MOOG_HEALTH_CHECK_ENABLED: "true"
+  MOOG_HEALTH_TIMEOUT: "5"
+
+  # Service Configuration
+  ALERTER_CACHE_TTL_SECONDS: "300"
+  MAX_DLQ_RETRIES: "5"
+  DLQ_BATCH_SIZE: "100"
+  REMEDIATION_INTERVAL_SECONDS: "60"
+
+  # Observability
+  LOG_LEVEL: "INFO"
+  ENABLE_TRACING: "false"
+
+  # Data Retention
+  EVENT_RETENTION_DAYS: "90"
+  AUDIT_RETENTION_DAYS: "365"
+```
+
+#### 5.1.2 Secrets Management
+
+```yaml
+# File: k8s/secrets.yaml
+# NOTE: In production, use External Secrets Operator or Vault integration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mutt-secrets
+  namespace: mutt
+type: Opaque
+data:
+  # Base64 encoded values (use: echo -n 'value' | base64)
+  REDIS_PASSWORD: ""  # Redis password (if auth enabled)
+  POSTGRES_PASSWORD: ""  # PostgreSQL password (from Vault)
+  VAULT_ROLE_ID: ""  # Vault AppRole role ID
+  VAULT_SECRET_ID: ""  # Vault AppRole secret ID
+  MUTT_API_KEY: ""  # API key for Web UI authentication
+
+---
+# File: k8s/external-secret.yaml (if using External Secrets Operator)
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: mutt-secrets
+  namespace: mutt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: mutt-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: POSTGRES_PASSWORD
+      remoteRef:
+        key: mutt/prod/secrets
+        property: postgres_password
+    - secretKey: REDIS_PASSWORD
+      remoteRef:
+        key: mutt/prod/secrets
+        property: redis_password
+    - secretKey: MUTT_API_KEY
+      remoteRef:
+        key: mutt/prod/secrets
+        property: api_key
+```
+
+#### 5.1.3 Service Deployments
+
+**Ingestor Service:**
+
+```yaml
+# File: k8s/ingestor-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-ingestor
+  namespace: mutt
+  labels:
+    app: mutt-ingestor
+    component: ingestion
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mutt-ingestor
+  template:
+    metadata:
+      labels:
+        app: mutt-ingestor
+        component: ingestion
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: mutt-ingestor
+      containers:
+      - name: ingestor
+        image: mutt/ingestor:2.5.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: mutt-config
+        - secretRef:
+            name: mutt-secrets
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-ingestor
+  namespace: mutt
+  labels:
+    app: mutt-ingestor
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: mutt-ingestor
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mutt-ingestor-hpa
+  namespace: mutt
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mutt-ingestor
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+**Alerter Service:**
+
+```yaml
+# File: k8s/alerter-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-alerter
+  namespace: mutt
+  labels:
+    app: mutt-alerter
+    component: processing
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: mutt-alerter
+  template:
+    metadata:
+      labels:
+        app: mutt-alerter
+        component: processing
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+    spec:
+      serviceAccountName: mutt-alerter
+      containers:
+      - name: alerter
+        image: mutt/alerter:2.5.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: metrics
+          containerPort: 9091
+          protocol: TCP
+        env:
+        - name: ALERTER_WORKER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: mutt-config
+        - secretRef:
+            name: mutt-secrets
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mutt-alerter-pdb
+  namespace: mutt
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: mutt-alerter
+```
+
+**Web UI Service:**
+
+```yaml
+# File: k8s/webui-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutt-webui
+  namespace: mutt
+  labels:
+    app: mutt-webui
+    component: ui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mutt-webui
+  template:
+    metadata:
+      labels:
+        app: mutt-webui
+        component: ui
+    spec:
+      containers:
+      - name: webui
+        image: mutt/webui:2.5.0
+        ports:
+        - name: http
+          containerPort: 8090
+        envFrom:
+        - configMapRef:
+            name: mutt-config
+        - secretRef:
+            name: mutt-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mutt-webui
+  namespace: mutt
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8090
+    targetPort: 8090
+    name: http
+  selector:
+    app: mutt-webui
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mutt-webui-ingress
+  namespace: mutt
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - mutt.example.com
+    secretName: mutt-tls
+  rules:
+  - host: mutt.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mutt-webui
+            port:
+              number: 8090
+```
+
+#### 5.1.4 CronJobs for Maintenance
+
+```yaml
+# File: k8s/partition-cronjob.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mutt-partition-creator
+  namespace: mutt
+spec:
+  schedule: "0 0 1 * *"  # Monthly on the 1st
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: partition-creator
+            image: mutt/maintenance:2.5.0
+            command:
+            - python
+            - /app/scripts/create_monthly_partitions.py
+            envFrom:
+            - configMapRef:
+                name: mutt-config
+            - secretRef:
+                name: mutt-secrets
+          restartPolicy: OnFailure
+
+---
+# File: k8s/retention-cronjob.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mutt-retention-cleanup
+  namespace: mutt
+spec:
+  schedule: "0 2 * * 0"  # Weekly on Sunday at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: retention-cleanup
+            image: mutt/maintenance:2.5.0
+            command:
+            - python
+            - /app/scripts/retention_policy_enforcer.py
+            envFrom:
+            - configMapRef:
+                name: mutt-config
+            - secretRef:
+                name: mutt-secrets
+          restartPolicy: OnFailure
+```
+
+### 5.2 RHEL/SystemD Deployment
+
+**Target Environment**: RHEL 8/9, CentOS Stream, Rocky Linux
+
+#### 5.2.1 SystemD Service Files
+
+**Ingestor Service:**
+
+```ini
+# File: systemd/mutt-ingestor.service
+[Unit]
+Description=MUTT Ingestor Service
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+# Environment
+EnvironmentFile=/opt/mutt/.env
+
+# Service execution
+ExecStart=/opt/mutt/venv/bin/python -m services.ingestor_service
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-ingestor
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Alerter Service:**
+
+```ini
+# File: systemd/mutt-alerter@.service
+# Template service for multiple alerter instances
+# Start with: systemctl start mutt-alerter@{1..5}.service
+
+[Unit]
+Description=MUTT Alerter Service (Instance %i)
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+# Environment
+EnvironmentFile=/opt/mutt/.env
+Environment="ALERTER_WORKER_ID=alerter-%i"
+
+# Service execution
+ExecStart=/opt/mutt/venv/bin/python -m services.alerter_service
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+CPUQuota=150%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-alerter-%i
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Moog Forwarder Service:**
+
+```ini
+# File: systemd/mutt-moog-forwarder.service
+[Unit]
+Description=MUTT Moog Forwarder Service
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+EnvironmentFile=/opt/mutt/.env
+
+ExecStart=/opt/mutt/venv/bin/python -m services.moog_forwarder_service
+
+LimitNOFILE=65536
+MemoryMax=1G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-moog-forwarder
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Web UI Service:**
+
+```ini
+# File: systemd/mutt-webui.service
+[Unit]
+Description=MUTT Web UI Service
+After=network.target redis.service postgresql.service
+Wants=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+EnvironmentFile=/opt/mutt/.env
+
+# Use Gunicorn for production
+ExecStart=/opt/mutt/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 0.0.0.0:8090 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    services.web_ui_service:app
+
+LimitNOFILE=65536
+MemoryMax=1G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-webui
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Remediation Service:**
+
+```ini
+# File: systemd/mutt-remediation.service
+[Unit]
+Description=MUTT Remediation Service
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=mutt
+Group=mutt
+WorkingDirectory=/opt/mutt
+
+EnvironmentFile=/opt/mutt/.env
+
+ExecStart=/opt/mutt/venv/bin/python -m services.remediation_service
+
+LimitNOFILE=65536
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mutt/logs
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mutt-remediation
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 5.2.2 RHEL Deployment Script
+
+```bash
+#!/bin/bash
+# File: scripts/deploy_rhel.sh
+# MUTT v2.5 RHEL Deployment Script
+
+set -e
+
+MUTT_USER="mutt"
+MUTT_GROUP="mutt"
+MUTT_HOME="/opt/mutt"
+PYTHON_VERSION="3.10"
+
+echo "=== MUTT v2.5 RHEL Deployment ==="
+
+# 1. Create user and group
+if ! id "$MUTT_USER" &>/dev/null; then
+    echo "Creating mutt user..."
+    useradd --system --home-dir "$MUTT_HOME" --shell /bin/bash "$MUTT_USER"
+fi
+
+# 2. Create directories
+echo "Creating directories..."
+mkdir -p "$MUTT_HOME"/{services,scripts,database,logs,venv}
+chown -R "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME"
+
+# 3. Install Python dependencies
+echo "Setting up Python virtual environment..."
+sudo -u "$MUTT_USER" python${PYTHON_VERSION} -m venv "$MUTT_HOME/venv"
+sudo -u "$MUTT_USER" "$MUTT_HOME/venv/bin/pip" install --upgrade pip
+sudo -u "$MUTT_USER" "$MUTT_HOME/venv/bin/pip" install -r requirements.txt
+
+# 4. Copy application files
+echo "Copying application files..."
+cp -r services/* "$MUTT_HOME/services/"
+cp -r scripts/* "$MUTT_HOME/scripts/"
+cp -r database/* "$MUTT_HOME/database/"
+chown -R "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME"
+
+# 5. Copy environment file
+if [ ! -f "$MUTT_HOME/.env" ]; then
+    echo "Creating .env file..."
+    cp .env.template "$MUTT_HOME/.env"
+    chown "$MUTT_USER:$MUTT_GROUP" "$MUTT_HOME/.env"
+    chmod 600 "$MUTT_HOME/.env"
+    echo "WARNING: Edit $MUTT_HOME/.env with production values!"
+fi
+
+# 6. Install systemd service files
+echo "Installing systemd services..."
+cp systemd/*.service /etc/systemd/system/
+systemctl daemon-reload
+
+# 7. Enable and start services
+echo "Enabling services..."
+systemctl enable mutt-ingestor.service
+systemctl enable mutt-alerter@{1..5}.service
+systemctl enable mutt-moog-forwarder.service
+systemctl enable mutt-webui.service
+systemctl enable mutt-remediation.service
+
+echo "Starting services..."
+systemctl start mutt-ingestor.service
+systemctl start mutt-alerter@{1..5}.service
+systemctl start mutt-moog-forwarder.service
+systemctl start mutt-webui.service
+systemctl start mutt-remediation.service
+
+# 8. Check status
+echo ""
+echo "=== Service Status ==="
+systemctl status mutt-ingestor.service --no-pager
+systemctl status mutt-alerter@1.service --no-pager
+systemctl status mutt-webui.service --no-pager
+
+echo ""
+echo "=== Deployment Complete ==="
+echo "Logs: journalctl -u mutt-* -f"
+echo "Config: $MUTT_HOME/.env"
+```
+
+### 5.3 Production Readiness Checklist
+
+#### 5.3.1 Pre-Deployment Validation
+
+```markdown
+## Infrastructure Requirements
+
+- [ ] Redis cluster configured with Sentinel/Cluster mode
+  - [ ] AOF persistence enabled
+  - [ ] Memory limit set (recommend 8GB minimum)
+  - [ ] Eviction policy: noeviction
+  - [ ] TLS enabled for production
+
+- [ ] PostgreSQL configured with replication
+  - [ ] Streaming replication to standby
+  - [ ] Point-in-time recovery (PITR) configured
+  - [ ] Connection pooling (PgBouncer recommended)
+  - [ ] TLS enabled for production
+  - [ ] Monthly partitions pre-created (3 months ahead)
+
+- [ ] Vault configured and accessible
+  - [ ] AppRole authentication configured
+  - [ ] Secrets stored at correct path
+  - [ ] Token renewal working
+  - [ ] TLS certificate valid
+
+- [ ] Monitoring infrastructure ready
+  - [ ] Prometheus scraping all /metrics endpoints
+  - [ ] Grafana dashboards imported
+  - [ ] Alertmanager rules configured
+  - [ ] PagerDuty/Slack integration tested
+
+## Security Hardening
+
+- [ ] All secrets stored in Vault (NOT in env files)
+- [ ] TLS enabled for all inter-service communication
+- [ ] API authentication enforced (X-API-Key header)
+- [ ] Network policies applied (Kubernetes)
+- [ ] Firewall rules configured (RHEL)
+- [ ] Service accounts with minimal permissions
+- [ ] Container images scanned for vulnerabilities
+- [ ] Security context constraints applied
+
+## Performance Tuning
+
+- [ ] Resource limits appropriate for load
+  - [ ] Ingestor: 1 CPU, 1GB RAM minimum per replica
+  - [ ] Alerter: 2 CPU, 2GB RAM minimum per replica
+  - [ ] Moog Forwarder: 500m CPU, 1GB RAM minimum
+  - [ ] Web UI: 500m CPU, 512MB RAM minimum
+
+- [ ] Horizontal pod autoscaling configured
+  - [ ] Ingestor: 3-10 replicas based on CPU/memory
+  - [ ] Alerter: 5-20 replicas based on queue depth
+  - [ ] Moog Forwarder: 1-3 replicas
+
+- [ ] Database tuning applied
+  - [ ] shared_buffers = 25% of RAM
+  - [ ] effective_cache_size = 50% of RAM
+  - [ ] work_mem tuned for concurrent queries
+  - [ ] Connection pool sized appropriately
+
+## Operational Readiness
+
+- [ ] Runbooks created for common scenarios
+  - [ ] Service restart procedures
+  - [ ] Database failover procedures
+  - [ ] Redis failover procedures
+  - [ ] Certificate rotation procedures
+  - [ ] Secret rotation procedures
+
+- [ ] Backup and recovery tested
+  - [ ] PostgreSQL daily backups
+  - [ ] Redis AOF backups
+  - [ ] Configuration backups
+  - [ ] Recovery tested (RTO < 1 hour)
+
+- [ ] Monitoring and alerting validated
+  - [ ] SLO alerts configured (availability, latency)
+  - [ ] Queue depth alerts
+  - [ ] Circuit breaker state alerts
+  - [ ] Resource utilization alerts
+  - [ ] Certificate expiry alerts
+
+- [ ] Documentation complete
+  - [ ] Architecture diagrams updated
+  - [ ] API documentation current
+  - [ ] Troubleshooting guide available
+  - [ ] Contact information for on-call
+
+## Testing Complete
+
+- [ ] Unit tests: 90%+ coverage, all passing
+- [ ] Integration tests: All passing
+- [ ] Load tests: Meeting performance targets
+  - [ ] Ingestor: 1000+ EPS sustained
+  - [ ] Alerter: p95 latency < 100ms
+  - [ ] End-to-end latency: p95 < 500ms
+  - [ ] Circuit breaker functioning correctly
+
+- [ ] Chaos testing performed
+  - [ ] Redis failover tested
+  - [ ] PostgreSQL failover tested
+  - [ ] Network partition handled gracefully
+  - [ ] Pod crashes recovered automatically
+
+## Deployment Validation
+
+- [ ] Canary deployment successful
+  - [ ] 10% traffic to new version
+  - [ ] No errors for 1 hour
+  - [ ] Rollback plan tested
+
+- [ ] Production smoke tests passed
+  - [ ] Ingest test event via API
+  - [ ] Verify event processed through pipeline
+  - [ ] Verify alert forwarded to Moogsoft
+  - [ ] Verify audit log entry created
+  - [ ] Web UI accessible and functional
+
+- [ ] Health checks passing
+  - [ ] All /health endpoints returning 200
+  - [ ] Kubernetes readiness probes passing
+  - [ ] Prometheus targets up and scraping
+
+## Post-Deployment
+
+- [ ] Monitor for 24 hours with on-call support
+- [ ] Review logs for errors/warnings
+- [ ] Validate metrics match expected patterns
+- [ ] Confirm SLO compliance
+- [ ] Document any issues encountered
+- [ ] Update runbooks based on lessons learned
+```
 
 ---
 
 ## Validation Checklist
 
--   [ ] All unit tests pass.
--   [ ] All integration tests pass.
--   [ ] All end-to-end tests pass.
--   [ ] The system can handle the expected load.
--   [ ] The documentation is complete and accurate.
+### Functional Validation
+-   [ ] All unit tests pass (90%+ coverage)
+-   [ ] All integration tests pass
+-   [ ] End-to-end event flow tested and working
+-   [ ] Load tests meet performance targets (1000+ EPS)
+-   [ ] Circuit breaker functions correctly under failure scenarios
+-   [ ] DLQ replay and remediation working
+
+### Performance Validation
+-   [ ] Ingestor latency p95 < 50ms
+-   [ ] Alerter processing latency p95 < 100ms
+-   [ ] Moog forwarding latency p95 < 200ms
+-   [ ] Database write throughput > 500 writes/sec
+-   [ ] Redis operations > 10,000 ops/sec
+
+### Security Validation
+-   [ ] All secrets stored in Vault
+-   [ ] TLS enabled for all external connections
+-   [ ] API authentication enforced
+-   [ ] Security scans clean (no critical/high vulnerabilities)
+-   [ ] Audit logging functioning correctly
+
+### Operational Validation
+-   [ ] Monitoring dashboards displaying data
+-   [ ] Alerts configured and tested
+-   [ ] Backup and recovery procedures tested
+-   [ ] Runbooks complete and validated
+-   [ ] On-call rotation established
 
 ---
 
