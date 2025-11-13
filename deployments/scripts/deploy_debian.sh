@@ -13,10 +13,21 @@ echo "=== MUTT v2.5 Debian Deployment ==="
 
 
 
+# Install python3.13-venv
+
+echo "Installing python3.13-venv..."
+
+sudo apt update
+
+sudo apt install -y python3.13-venv
+
+
+
 # 2. Create user and group
+
 if ! id "$MUTT_USER" &>/dev/null; then
     echo "Creating mutt user..."
-    sudo useradd --system --home-dir "$MUTT_HOME" --shell /bin/bash --create-home "$MUTT_USER"
+    sudo useradd --system --home-dir "$MUTT_HOME" --shell /bin/bash --create-home "$MUTT_USER" || true
 fi
 
 # 3. Create directories

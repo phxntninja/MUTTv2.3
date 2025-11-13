@@ -25,7 +25,9 @@ exit
 -   `sudo` or root access.
 -   Python v3.13.
 
-Your Debian 13 server should already have Python 3.13 installed. You can verify this by running `python3 --version`. If it's not installed, you can install it via:
+Your Debian 13 server should already have Python 3.13 installed. You can verify this by running `python3 --version`. Additionally, the `python3.13-venv` package is required for creating virtual environments.
+
+If Python 3.13 or `python3.13-venv` is not installed, you can install them via:
 ```bash
 sudo apt update
 sudo apt install -y python3.13 python3.13-venv
