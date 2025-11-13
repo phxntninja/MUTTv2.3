@@ -7,21 +7,11 @@ set -e
 MUTT_USER="mutt"
 MUTT_GROUP="mutt"
 MUTT_HOME="/opt/mutt"
-PYTHON_VERSION="3.10"
+PYTHON_VERSION="3.13"
 
 echo "=== MUTT v2.5 Debian Deployment ==="
 
-# 1. Check Python 3.10 availability
-if ! command -v python${PYTHON_VERSION} &> /dev/null; then
-    echo "ERROR: Python ${PYTHON_VERSION} not found!"
-    echo "Install it using:"
-    echo "  sudo apt update"
-    echo "  sudo apt install -y software-properties-common"
-    echo "  sudo add-apt-repository ppa:deadsnakes/ppa"
-    echo "  sudo apt update"
-    echo "  sudo apt install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-venv"
-    exit 1
-fi
+
 
 # 2. Create user and group
 if ! id "$MUTT_USER" &>/dev/null; then

@@ -21,18 +21,14 @@ exit
 ## 1. Prerequisites
 
 ### 1.1. System Dependencies
--   A Debian Server (Debian 11 "Bullseye" or newer is recommended).
+-   A Debian Server (Debian 13 "Trixie" or newer is recommended).
 -   `sudo` or root access.
--   Python v3.10.
+-   Python v3.13.
 
-To install Python 3.10 if it's not already present, you may need to add a third-party repository, as it may not be in the default Debian repositories. The "deadsnakes" PPA is a common choice for both Ubuntu and Debian.
-
+Your Debian 13 server should already have Python 3.13 installed. You can verify this by running `python3 --version`. If it's not installed, you can install it via:
 ```bash
 sudo apt update
-sudo apt install -y software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install -y python3.10 python3.10-venv
+sudo apt install -y python3.13 python3.13-venv
 ```
 
 ### 1.2. External Services
