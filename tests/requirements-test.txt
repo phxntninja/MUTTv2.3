@@ -27,7 +27,7 @@ pytest-json-report==1.5.0  # JSON test reports
 
 # Main application dependencies (from requirements.txt)
 Flask==3.1.2
-redis==5.0.1
+redis==5.0.8
 psycopg2-binary==2.9.11
 hvac==2.0.0
 requests==2.32.5
