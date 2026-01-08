@@ -24,7 +24,7 @@ Your documentation will be the **foundation** that all other documentation build
 ### What is MUTT?
 
 MUTT (Multi-Use Telemetry Tool) is a production-grade, horizontally scalable event processing system for network operations:
-- **Ingests** syslog and SNMP trap events via HTTP
+- **Ingests** syslog and SNMP trap events
 - **Processes** events using intelligent rule-based routing
 - **Forwards** alerts to Moogsoft AIOps platform
 - **Manages** configuration dynamically at runtime
