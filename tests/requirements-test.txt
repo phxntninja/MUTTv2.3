@@ -22,7 +22,7 @@ pytest-pylint==0.21.0      # Code quality checks
 pytest-benchmark==5.2.3    # Performance benchmarking
 
 # Test reporting
-pytest-html==4.1.1         # HTML test reports
+pytest-html==4.2.0         # HTML test reports
 pytest-json-report==1.5.0  # JSON test reports
 
 # Main application dependencies (from requirements.txt)
