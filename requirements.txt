@@ -15,7 +15,7 @@ psycopg2-binary==2.9.11
 redis==5.0.1
 
 # Vault
-hvac==2.0.0
+hvac==2.4.0
 
 # SNMP trap sending for demo tooling
 pysnmp==4.4.12
